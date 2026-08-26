@@ -10,7 +10,5 @@
 
   <project path="contest2026_243_qiqimiaomiao" name="contest2026_243_qiqimiaomiao">
     <linkfile src="app/hello_app" dest="packages/demos/contest2026_243_hello_app"/>
-    <linkfile src="quickapp/hello_quickapp" dest="packages/apps/contest2026_243_hello_quickapp"/>
-    <linkfile src="board/contest_board" dest="vendor/openvela/boards/contest2026_243_board"/>
   </project>
 </manifest>
