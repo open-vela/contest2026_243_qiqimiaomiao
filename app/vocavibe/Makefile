@@ -1,14 +1,15 @@
 ############################################################################
-# Contest 2026 team 243 hello app - Makefile
+# Contest 2026 team 243 VocaVibe app - Makefile
 ############################################################################
 
 include $(APPDIR)/Make.defs
 
-PROGNAME  = hello_app
+PROGNAME  = vocavibe
 PRIORITY  = SCHED_PRIORITY_DEFAULT
 STACKSIZE = 2048
-MODULE    = $(CONFIG_LVX_USE_DEMO_CONTEST2026_243_HELLO_APP)
+MODULE    = $(CONFIG_LVX_USE_DEMO_CONTEST2026_243_VOCAVIBE)
 
-MAINSRC = hello_app_main.c
+MAINSRC = src/vocavibe_main.c
+CFLAGS  += -I$(APPDIR)/packages/demos/contest2026_243_vocavibe/include
 
 include $(APPDIR)/Application.mk
