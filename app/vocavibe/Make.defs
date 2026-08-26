@@ -1,0 +1,7 @@
+############################################################################
+# Contest 2026 team 243 VocaVibe app - Make.defs
+############################################################################
+
+ifneq ($(CONFIG_LVX_USE_DEMO_CONTEST2026_243_VOCAVIBE),)
+CONFIGURED_APPS += $(APPDIR)/packages/demos/contest2026_243_vocavibe
+endif

@@ -9,6 +9,6 @@
   <include name="openvela.xml"/>
 
   <project path="contest2026_243_qiqimiaomiao" name="contest2026_243_qiqimiaomiao">
-    <linkfile src="app/hello_app" dest="packages/demos/contest2026_243_hello_app"/>
+    <linkfile src="app/vocavibe" dest="packages/demos/contest2026_243_vocavibe"/>
   </project>
 </manifest>
