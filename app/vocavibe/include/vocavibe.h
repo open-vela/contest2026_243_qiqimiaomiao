@@ -1,11 +1,12 @@
 /****************************************************************************
- * vocavibe.h - VocaVibe 参赛 app（243 队）公共接口声明
+ * contest2026_243_qiqimiaomiao/app/vocavibe/include/vocavibe.h
  *
- * 这是应用对外/内部各模块共享的声明入口。目前作为目录骨架的一部分；
- * 后续功能模块（ai_agent 集成、LVGL 界面、语音等）的公共声明统一放这里。
+ * VocaVibe 参赛 app (243 队) 公共接口总入口
  ****************************************************************************/
 
 #ifndef __INCLUDE_VOCAVIBE_H
 #define __INCLUDE_VOCAVIBE_H
+
+#include "vocavibe_bt.h"
 
 #endif /* __INCLUDE_VOCAVIBE_H */

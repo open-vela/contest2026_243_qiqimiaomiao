@@ -3,7 +3,7 @@
   "team_id": "contest2026_243_qiqimiaomiao",
   "github_login": "mohong06",
   "generator": "claude-code-collector@1.3.0",
-  "updated_at": "2026-08-19T17:18:51.802Z",
+  "updated_at": "2026-09-01T01:12:27.936Z",
   "sessions": [
     {
       "session_id": "9cb262ae-4b74-4153-8079-da986fb77e20",
@@ -13,6 +13,54 @@
       "event_count": 127,
       "raw_event_count": 1815,
       "file_path": "logs/mohong06/2026-08-20/claude-code__9cb262ae-4b74-4153-8079-da986fb77e20.jsonl",
+      "collection_mode": "cli",
+      "health": "ok",
+      "model": "mimo-v2.5"
+    },
+    {
+      "session_id": "675abe5e-5e12-4c4a-855f-091fcf2ce077",
+      "tool": "claude-code",
+      "started_at": "2026-08-31T10:03:38.783Z",
+      "last_event_at": "2026-08-31T15:44:16.339Z",
+      "event_count": 905,
+      "raw_event_count": 1309,
+      "file_path": "logs/mohong06/2026-08-31/claude-code__675abe5e-5e12-4c4a-855f-091fcf2ce077.jsonl",
+      "collection_mode": "cli",
+      "health": "ok",
+      "model": "mimo-v2.5"
+    },
+    {
+      "session_id": "38eeb700-b7e5-49c8-a172-5fe3dadb1633",
+      "tool": "claude-code",
+      "started_at": "2026-08-31T14:42:11.202Z",
+      "last_event_at": "2026-08-31T15:44:16.475Z",
+      "event_count": 67,
+      "raw_event_count": 89,
+      "file_path": "logs/mohong06/2026-08-31/claude-code__38eeb700-b7e5-49c8-a172-5fe3dadb1633.jsonl",
+      "collection_mode": "cli",
+      "health": "ok",
+      "model": "mimo-v2.5"
+    },
+    {
+      "session_id": "ce496208-e010-428b-905b-0e0ca661b850",
+      "tool": "claude-code",
+      "started_at": "2026-08-31T10:03:38.800Z",
+      "last_event_at": "2026-09-01T00:15:25.340Z",
+      "event_count": 83,
+      "raw_event_count": 945,
+      "file_path": "logs/mohong06/2026-09-01/claude-code__ce496208-e010-428b-905b-0e0ca661b850.jsonl",
+      "collection_mode": "cli",
+      "health": "ok",
+      "model": "mimo-v2.5"
+    },
+    {
+      "session_id": "980f4e04-e307-4cbe-977d-11d5ee518574",
+      "tool": "claude-code",
+      "started_at": "2026-08-31T10:03:38.800Z",
+      "last_event_at": "2026-09-01T01:12:27.930Z",
+      "event_count": 913,
+      "raw_event_count": 1195,
+      "file_path": "logs/mohong06/2026-09-01/claude-code__980f4e04-e307-4cbe-977d-11d5ee518574.jsonl",
       "collection_mode": "cli",
       "health": "ok",
       "model": "mimo-v2.5"
