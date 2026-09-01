@@ -18,3 +18,9 @@ out/
 
 # Claude Code 本地权限配置（含本机路径，不提交）
 .claude/settings.local.json
+
+# 工程学习记录（团队内部笔记，暂不提交）
+工程学习记录/
+
+# AI Coding 日志（本地记录，暂不提交）
+logs/

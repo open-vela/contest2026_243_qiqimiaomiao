@@ -2,7 +2,7 @@
 if(CONFIG_LVX_USE_DEMO_CONTEST2026_243_VOCAVIBE)
   nuttx_add_application(
     NAME vocavibe
-    SRCS src/vocavibe_main.c
+    SRCS src/vocavibe_main.c src/vocavibe_bt.c
     INCLUDE_DIRECTORIES include
-    STACKSIZE 2048)
+    STACKSIZE 8192)
 endif()
