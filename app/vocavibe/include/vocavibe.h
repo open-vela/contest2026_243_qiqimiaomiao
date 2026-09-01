@@ -8,5 +8,6 @@
 #define __INCLUDE_VOCAVIBE_H
 
 #include "vocavibe_bt.h"
+#include "vocavibe_core.h"
 
 #endif /* __INCLUDE_VOCAVIBE_H */
