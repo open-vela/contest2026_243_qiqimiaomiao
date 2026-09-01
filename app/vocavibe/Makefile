@@ -9,8 +9,9 @@ PRIORITY  = SCHED_PRIORITY_DEFAULT
 STACKSIZE = 8192
 MODULE    = $(CONFIG_LVX_USE_DEMO_CONTEST2026_243_VOCAVIBE)
 
-CSRCS   = src/vocavibe_bt.c
+CSRCS   = src/vocavibe_bt.c src/vocavibe_core.c
 MAINSRC = src/vocavibe_main.c
 CFLAGS  += -I$(APPDIR)/packages/demos/contest2026_243_vocavibe/include
+CFLAGS  += -I$(APPDIR)/netutils/cjson/cJSON
 
 include $(APPDIR)/Application.mk
