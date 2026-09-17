@@ -10,7 +10,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
 #include <math.h>
+#include <nuttx/lcd/lcd_dev.h>
 
 #include <lvgl/lvgl.h>
 #include "vocavibe_ui.h"
@@ -792,6 +795,14 @@ int vocavibe_ui_init(const vocavibe_ui_callbacks_t *cbs)
     }
 
     if (lv_display_get_default() == NULL) {
+        /* 1. 开机等待底层 LCD 设备就绪（最多 3 秒） */
+        for (int retry = 0; retry < 30; retry++) {
+            if (access("/dev/lcd0", F_OK) == 0) {
+                break;
+            }
+            usleep(100000);
+        }
+
         static lv_nuttx_dsc_t info;
         static lv_nuttx_result_t result;
         lv_nuttx_dsc_init(&info);
@@ -807,6 +818,21 @@ int vocavibe_ui_init(const vocavibe_ui_callbacks_t *cbs)
         if (result.disp == NULL) {
             printf("[VocaVibe UI] 严重错误: 屏幕初始化失败！\n");
             return -1;
+        }
+
+        /* 2. 硬件就绪后强制发送 LCDDEVIO_SETPOWER 点亮 AMOLED 屏幕 (DisplayOn 0x29) */
+        usleep(50000); /* 确保硬件线程完成 Init */
+        int lcd_fd = open("/dev/lcd0", O_RDWR | O_CLOEXEC);
+        if (lcd_fd >= 0) {
+            int power = 100;
+            for (int p_retry = 0; p_retry < 3; p_retry++) {
+                ioctl(lcd_fd, LCDDEVIO_SETPOWER, (unsigned long)power);
+                usleep(10000);
+            }
+            close(lcd_fd);
+            printf("[VocaVibe UI] 已发送 LCDDEVIO_SETPOWER 点亮屏幕 (Power=100)\n");
+        } else {
+            printf("[VocaVibe UI] 警告: /dev/lcd0 暂无法打开 (errno=%d)\n", errno);
         }
 
         /* 挂接 FT6146 双模硬件直通触控引擎 */
@@ -845,12 +871,28 @@ int vocavibe_ui_init(const vocavibe_ui_callbacks_t *cbs)
     /* 创建固定在屏幕底部的 4 按钮触控导航栏 */
     create_bottom_nav_bar(scr);
 
+    /* 强制立即刷新首帧，确保开机上电显存立即呈现羊皮纸 UI */
+    if (lv_display_get_default()) {
+        lv_refr_now(lv_display_get_default());
+    }
+
     printf("[VocaVibe UI] 羊皮纸纸质手账 UI 与 4 页面全触控 Tileview 初始化成功\n");
     return 0;
 }
 
 void vocavibe_ui_poll(void)
 {
+    /* 开机前几帧确保底层硬件线程与显示电源 100% 处于开启状态 */
+    static int s_pwr_sync_cnt = 0;
+    if (s_pwr_sync_cnt < 5) {
+        s_pwr_sync_cnt++;
+        int pfd = open("/dev/lcd0", O_RDWR | O_CLOEXEC);
+        if (pfd >= 0) {
+            ioctl(pfd, LCDDEVIO_SETPOWER, 100);
+            close(pfd);
+        }
+    }
+
     /* 1. 切换页面请求 */
     if (s_switch_to_page >= 0 && s_switch_to_page < 4 && s_tv) {
         lv_tileview_set_tile_by_index(s_tv, (uint32_t)s_switch_to_page, 0, LV_ANIM_OFF);
