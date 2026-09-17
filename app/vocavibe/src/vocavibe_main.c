@@ -1,7 +1,7 @@
 /****************************************************************************
  * contest2026_243_qiqimiaomiao/app/vocavibe/src/vocavibe_main.c
  *
- * VocaVibe 参赛主程序：统一端云交互入口、UI 初始化与后台协议交互
+ * VocaVibe 参赛主程序：统一端云交互入口、UI 初始化与主线程事件分发
  ****************************************************************************/
 
 #include <nuttx/config.h>
@@ -9,10 +9,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <pthread.h>
 #include <errno.h>
 
 #include "vocavibe_core.h"
 #include "vocavibe_ui.h"
+#include "vocavibe_touch.h"
+
+static volatile bool s_app_running = true;
+static pthread_t s_serial_tid;
 
 static void show_banner(void)
 {
@@ -24,46 +29,14 @@ static void show_banner(void)
     fflush(stdout);
 }
 
-int main(int argc, char *argv[])
+static void *serial_reader_thread(void *arg)
 {
-    show_banner();
-
-    /* 1. 初始化端侧核心逻辑与 Anki 卡组 */
-    int ret = vocavibe_core_init();
-    if (ret < 0) {
-        printf("[VocaVibe] 核心层初始化失败: %d\n", ret);
-        return ret;
-    }
-
-    /* 2. 绑定 UI 回调函数 */
-    vocavibe_ui_callbacks_t cbs = {
-        .on_card_answer = (vocavibe_ui_card_answer_cb_t)vocavibe_deck_answer_card,
-        .on_ai_query    = (vocavibe_ui_ai_query_cb_t)vocavibe_core_request_ai,
-        .on_sync        = (vocavibe_ui_sync_cb_t)vocavibe_core_request_sync,
-        .on_bt_scan     = (vocavibe_ui_bt_scan_cb_t)vocavibe_core_request_bt_scan,
-        .on_bt_connect  = (vocavibe_ui_bt_connect_cb_t)vocavibe_core_request_bt_connect,
-    };
-
-    /* 3. 启动 4 页面全触控 UI */
-    ret = vocavibe_ui_init(&cbs);
-    if (ret < 0) {
-        printf("[VocaVibe] UI 初始化异常或未检测到显示屏 (继续命令行模式)\n");
-    } else {
-        /* 填充初始页面数据 */
-        vocavibe_ui_update_dashboard(vocavibe_deck_get_total_count(),
-                                     vocavibe_deck_get_due_count(),
-                                     vocavibe_deck_get_reviewed_count());
-        vocavibe_ui_show_card(vocavibe_deck_get_current_card(), false, 1, vocavibe_deck_get_total_count());
-    }
-
-    /* 4. 监听串口协议报文与调试交互控制台 */
-    printf("[VocaVibe] 正在监听串口中转指令与 JSON 数据流...\n");
-    fflush(stdout);
-
+    (void)arg;
     char line[512];
-    while (1) {
+    while (s_app_running) {
         if (!fgets(line, sizeof(line), stdin)) {
-            usleep(50000);
+            clearerr(stdin);
+            usleep(500000);
             continue;
         }
 
@@ -86,10 +59,11 @@ int main(int argc, char *argv[])
 
         /* 命令行调试指令 */
         if (strcmp(p, "help") == 0) {
-            printf("\n[VocaVibe 指令集]\n");
-            printf("  status         - 查看卡组与系统状态\n");
+            printf("\n[VocaVibe 终端指令集]\n");
+            printf("  status         - 查看卡组统计与当前学习状态\n");
+            printf("  touch          - 诊断与测试触摸屏硬件状态\n");
             printf("  flip           - 翻转当前卡片正面/背面\n");
-            printf("  answer <1..4>  - Anki 评分 (1:Again, 2:Hard, 3:Good, 4:Easy)\n");
+            printf("  answer <1..4>  - Anki 评分 (1:重来, 2:困难, 3:良好, 4:简单)\n");
             printf("  next           - 下一张卡片\n");
             printf("  ai <query>     - 向大模型提问\n");
             printf("  exit / quit    - 退出程序\n\n");
@@ -103,17 +77,18 @@ int main(int argc, char *argv[])
                 printf("  当前卡片: [%u] %s (间隔:%dd, 难度:%.2f)\n\n",
                        (unsigned int)c->id, c->word, c->interval, c->factor / 1000.0f);
             }
+        } else if (strcmp(p, "touch") == 0) {
+            vocavibe_touch_diagnose();
         } else if (strcmp(p, "flip") == 0) {
             vocavibe_ui_show_card(vocavibe_deck_get_current_card(), true,
                                  vocavibe_deck_get_current_index() + 1,
                                  vocavibe_deck_get_total_count());
-            printf("[VocaVibe] 已翻转至背面\n");
         } else if (strncmp(p, "answer ", 7) == 0) {
             int rating = atoi(p + 7);
             if (rating >= 1 && rating <= 4) {
                 vocavibe_deck_answer_card((anki_rating_t)rating);
             } else {
-                printf("评分范围: 1~4\n");
+                printf("评分范围: 1~4 (1:重来 2:困难 3:良好 4:简单)\n");
             }
         } else if (strcmp(p, "next") == 0) {
             vocavibe_deck_answer_card(ANKI_RATING_GOOD);
@@ -121,13 +96,61 @@ int main(int argc, char *argv[])
             vocavibe_core_request_ai(p + 3);
         } else if (strcmp(p, "exit") == 0 || strcmp(p, "quit") == 0) {
             printf("[VocaVibe] 退出应用程序\n");
+            s_app_running = false;
             break;
         } else {
             printf("未知指令 '%s'，输入 'help' 查看帮助\n", p);
         }
         fflush(stdout);
     }
+    return NULL;
+}
 
+int main(int argc, char *argv[])
+{
+    show_banner();
+
+    /* 1. 初始化端侧核心逻辑与 Anki 卡组 */
+    int ret = vocavibe_core_init();
+    if (ret < 0) {
+        printf("[VocaVibe] 核心层初始化失败: %d\n", ret);
+        return ret;
+    }
+
+    /* 2. 绑定 UI 回调函数 */
+    vocavibe_ui_callbacks_t cbs = {
+        .on_card_answer = (vocavibe_ui_card_answer_cb_t)vocavibe_deck_answer_card,
+        .on_ai_query    = (vocavibe_ui_ai_query_cb_t)vocavibe_core_request_ai,
+        .on_sync        = (vocavibe_ui_sync_cb_t)vocavibe_core_request_sync,
+        .on_bt_scan     = (vocavibe_ui_bt_scan_cb_t)vocavibe_core_request_bt_scan,
+        .on_bt_connect  = (vocavibe_ui_bt_connect_cb_t)vocavibe_core_request_bt_connect,
+    };
+
+    /* 3. 在主线程中初始化 UI 与触摸屏驱动 (保证 TLS 隔离环境一致) */
+    ret = vocavibe_ui_init(&cbs);
+    if (ret == 0) {
+        vocavibe_ui_update_dashboard(vocavibe_deck_get_total_count(),
+                                     vocavibe_deck_get_due_count(),
+                                     vocavibe_deck_get_reviewed_count());
+        vocavibe_ui_show_card(vocavibe_deck_get_current_card(), false, 1, vocavibe_deck_get_total_count());
+    }
+
+    /* 4. 启动后台串口指令监听线程 */
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, 4096);
+    pthread_create(&s_serial_tid, &attr, serial_reader_thread, NULL);
+    pthread_attr_destroy(&attr);
+
+    printf("[VocaVibe] 进入主事件轮询循环，触控与渲染已就绪\n");
+    fflush(stdout);
+
+    /* 5. 主线程 UI 循环：负责图形渲染与触摸事件实时派发 */
+    while (s_app_running) {
+        vocavibe_ui_poll();
+    }
+
+    pthread_join(s_serial_tid, NULL);
     vocavibe_core_deinit();
     return 0;
 }
