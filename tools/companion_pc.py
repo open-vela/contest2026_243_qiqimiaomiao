@@ -23,7 +23,7 @@ import serial.tools.list_ports
 
 # Xiaomi MiMo 2.5 云端大模型配置
 MIMO_API_KEY = "tp-c2rn3aytnmxcfash8yv6xenmzntatkev0btwhp06540wnhz3"
-MIMO_URL = "https://token-plan-cn.xiaomimimo.com/anthropic/v1/messages"
+MIMO_URL = "https://token-plan-cn.xiaomimimo.com/v1/chat/completions"
 
 # 本地 AnkiConnect API 地址
 ANKI_CONNECT_URL = "http://127.0.0.1:8765"
