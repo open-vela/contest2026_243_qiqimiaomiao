@@ -40,6 +40,10 @@ typedef enum {
 
 /* 初始化 UI (创建 4 页面 Tileview、小智声波、Anki 4 档按键、蓝牙代理列表等) */
 int  vocavibe_ui_init(const vocavibe_ui_callbacks_t *cbs);
+
+/* UI 核心主循环轮询（必须在初始化 LVGL 的主线程中调用，以共享 TLS 和触摸驱动） */
+void vocavibe_ui_poll(void);
+
 void vocavibe_ui_switch_page(int page_idx);
 
 /* 页面 0: 仪表盘数据刷新 */

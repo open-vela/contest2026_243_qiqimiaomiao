@@ -21,28 +21,28 @@ static int s_card_count = 0;
 static int s_current_index = 0;
 static bool s_card_showing_back = false;
 
-/* 默认比赛定制 20 个高频 AI 嵌入式核心词库 */
+/* 默认比赛定制 20 个高频 AI 嵌入式核心词库 (中英对照) */
 static const anki_card_t s_default_cards[] = {
-    {1, "openvela", "/open-vela/", "Next-gen Edge AI Real-Time OS for Embedded MCUs", "OpenVela OS powers intelligent edge hardware with microsecond latency.", 0, 2500, 0, 0, false},
-    {2, "ecosystem", "/ee-koh-sis-tem/", "Collaborative software and hardware developer network", "Developers collaborate to enrich the vibrant openvela ecosystem.", 0, 2500, 0, 0, false},
-    {3, "embedded", "/em-bed-id/", "Integrated computing hardware inside microcontrollers", "SF32LB52 is an advanced dual-core embedded IoT processor.", 0, 2500, 0, 0, false},
-    {4, "latency", "/ley-tn-see/", "Delay between voice input and intelligent speech output", "Ultra-low latency is crucial for real-time voice conversations.", 0, 2500, 0, 0, false},
-    {5, "multimodal", "/muhl-ti-moh-dl/", "Unified touch screen, voice dialogue and audio waveforms", "VocaVibe delivers a seamless multimodal learning experience.", 0, 2500, 0, 0, false},
-    {6, "neural", "/noor-uhl/", "Lightweight edge neural networks and AI models", "Edge neural processing optimizes real-time voice recognition.", 0, 2500, 0, 0, false},
-    {7, "heuristic", "/hyoo-ris-tik/", "Adaptive spaced repetition learning algorithm (SM-2)", "The Anki SM-2 heuristic algorithm optimizes spaced reviews.", 0, 2500, 0, 0, false},
-    {8, "synthesize", "/sin-thuh-sahyz/", "Real-time neural audio generation for pronunciation", "Cloud TTS engines synthesize crystal-clear pronunciation.", 0, 2500, 0, 0, false},
-    {9, "cognitive", "/kog-ni-tiv/", "Brain memory retention and mental learning process", "Spaced review significantly reduces cognitive overload.", 0, 2500, 0, 0, false},
-    {10, "inference", "/in-fer-uhns/", "High-speed token generation by large language model", "Xiaomi MiMo LLM performs high-speed streaming inference.", 0, 2500, 0, 0, false},
-    {11, "agile", "/aj-uhl/", "Lightweight, low-overhead responsive architecture", "OpenVela facilitates agile iteration for smart edge devices.", 0, 2500, 0, 0, false},
-    {12, "paradigm", "/par-uh-dahym/", "Distributed AI hardware and edge agent architecture", "Distributed agents represent a new paradigm in embedded computing.", 0, 2500, 0, 0, false},
-    {13, "telemetry", "/tuh-lem-i-tree/", "Real-time device battery, network and state metrics", "System telemetry reports real-time connection status to the UI.", 0, 2500, 0, 0, false},
-    {14, "pervasive", "/per-vey-siv/", "Ubiquitous intelligent distributed sensing network", "Pervasive intelligence bridges wearable hardware and cloud agents.", 0, 2500, 0, 0, false},
-    {15, "orchestrate", "/awr-kuh-streyt/", "Scheduling ASR, LLM, UI rendering and audio relay", "The central coordinator orchestrates ASR, LLM, and UI updates.", 0, 2500, 0, 0, false},
-    {16, "autonomous", "/aw-ton-uh-muhs/", "Self-directed agent capable of on-device CRUD actions", "Autonomous agent skills handle card CRUD events seamlessly.", 0, 2500, 0, 0, false},
-    {17, "resonance", "/rez-uh-nuhns/", "Sonic waveform undulating visually in sync with voice", "Sonic waveforms oscillate in visual resonance with speech.", 0, 2500, 0, 0, false},
-    {18, "tangible", "/tan-juh-buhl/", "Physical touchable hardware smart learning companion", "VocaVibe transforms cloud AI into a tangible desktop companion.", 0, 2500, 0, 0, false},
-    {19, "fidelity", "/fi-del-i-tee/", "High-resolution AMOLED display and clear voice audio", "High fidelity audio ensures users grasp precise pronunciation.", 0, 2500, 0, 0, false},
-    {20, "benchmark", "/bench-mahrk/", "Reference standard for 2026 OpenVela Contest projects", "VocaVibe sets a benchmark for edge AI hardware innovations.", 0, 2500, 0, 0, false}
+    {1, "openvela", "/open-vela/", "嵌入式微控制器专属的下一代端侧实时 AI 操作系统", "OpenVela OS powers intelligent edge hardware with microsecond latency.", 0, 2500, 0, 0, false},
+    {2, "ecosystem", "/ee-koh-sis-tem/", "生态系统：软硬件协同的庞大开发者与应用体系", "Developers collaborate to enrich the vibrant openvela ecosystem.", 0, 2500, 0, 0, false},
+    {3, "embedded", "/em-bed-id/", "嵌入式：集成在微控制器芯片内部的系统与计算", "SF32LB52 is an advanced dual-core embedded IoT processor.", 0, 2500, 0, 0, false},
+    {4, "latency", "/ley-tn-see/", "延迟：从语音输入到智能应答之间的端到端响应耗时", "Ultra-low latency is crucial for real-time voice conversations.", 0, 2500, 0, 0, false},
+    {5, "multimodal", "/muhl-ti-moh-dl/", "多模态：融合触控屏幕、语音交互与声波动效的体验", "VocaVibe delivers a seamless multimodal learning experience.", 0, 2500, 0, 0, false},
+    {6, "neural", "/noor-uhl/", "神经网络：端侧轻量化边缘 AI 推理与计算模型", "Edge neural processing optimizes real-time voice recognition.", 0, 2500, 0, 0, false},
+    {7, "heuristic", "/hyoo-ris-tik/", "启发式算法：基于间隔重复的记忆强化规则 (SM-2)", "The Anki SM-2 heuristic algorithm optimizes spaced reviews.", 0, 2500, 0, 0, false},
+    {8, "synthesize", "/sin-thuh-sahyz/", "合成：利用云端或本地神经语音模型合成高保真读音", "Cloud TTS engines synthesize crystal-clear pronunciation.", 0, 2500, 0, 0, false},
+    {9, "cognitive", "/kog-ni-tiv/", "认知的：大脑记忆留存与心理学习加工过程", "Spaced review significantly reduces cognitive overload.", 0, 2500, 0, 0, false},
+    {10, "inference", "/in-fer-uhns/", "推理：大语言模型高速生成 Token 的计算过程", "Xiaomi MiMo LLM performs high-speed streaming inference.", 0, 2500, 0, 0, false},
+    {11, "agile", "/aj-uhl/", "敏捷的：轻量、低开销且能快速迭代响应的架构", "OpenVela facilitates agile iteration for smart edge devices.", 0, 2500, 0, 0, false},
+    {12, "paradigm", "/par-uh-dahym/", "范式：分布式 AI 硬件与端侧智能体的新型范例", "Distributed agents represent a new paradigm in embedded computing.", 0, 2500, 0, 0, false},
+    {13, "telemetry", "/tuh-lem-i-tree/", "遥测：实时上报设备电量、网络、算法与状态指标", "System telemetry reports real-time connection status to the UI.", 0, 2500, 0, 0, false},
+    {14, "pervasive", "/per-vey-siv/", "泛在的：无处不在的分布式互联与环境感知网络", "Pervasive intelligence bridges wearable hardware and cloud agents.", 0, 2500, 0, 0, false},
+    {15, "orchestrate", "/awr-kuh-streyt/", "编排：统一调度 ASR、大模型、UI 渲染与音频中继", "The central coordinator orchestrates ASR, LLM, and UI updates.", 0, 2500, 0, 0, false},
+    {16, "autonomous", "/aw-ton-uh-muhs/", "自主的：支持在端侧自主执行增删改查的智能体能力", "Autonomous agent skills handle card CRUD events seamlessly.", 0, 2500, 0, 0, false},
+    {17, "resonance", "/rez-uh-nuhns/", "共振律动：与语音频率同步起伏的小智声波动效", "Sonic waveforms oscillate in visual resonance with speech.", 0, 2500, 0, 0, false},
+    {18, "tangible", "/tan-juh-buhl/", "有形的：可触摸的桌面级实体智能学习伴侣", "VocaVibe transforms cloud AI into a tangible desktop companion.", 0, 2500, 0, 0, false},
+    {19, "fidelity", "/fi-del-i-tee/", "保真度：高清 AMOLED 显示与清晰通透的声音还原", "High fidelity audio ensures users grasp precise pronunciation.", 0, 2500, 0, 0, false},
+    {20, "benchmark", "/bench-mahrk/", "基准标杆：2026 OpenVela 大赛端侧 AI 创新标杆", "VocaVibe sets a benchmark for edge AI hardware innovations.", 0, 2500, 0, 0, false}
 };
 
 static void init_default_deck(void)
