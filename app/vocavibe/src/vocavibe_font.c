@@ -8,4 +8,4 @@
 #undef LV_FONT_SIMSUN_16_CJK
 #define LV_FONT_SIMSUN_16_CJK 1
 
-#include "../../../../apps/graphics/lvgl/lvgl/src/font/lv_font_simsun_16_cjk.c"
+#include "vocavibe_font_data.c"
