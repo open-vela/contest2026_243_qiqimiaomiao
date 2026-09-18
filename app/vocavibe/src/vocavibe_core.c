@@ -486,6 +486,11 @@ int vocavibe_core_request_bt_connect(const char *mac)
     return vocavibe_core_send_json("bt_connect", mac);
 }
 
+int vocavibe_core_request_net_connect(void)
+{
+    return vocavibe_core_send_json("net_connect", NULL);
+}
+
 /* 接收并处理来自电脑中转网关/耳机的协议报文 */
 void vocavibe_core_handle_line(const char *line)
 {
@@ -664,6 +669,21 @@ void vocavibe_core_handle_line(const char *line)
         if (jid) {
             vocavibe_deck_delete_card((uint32_t)jid->valueint);
         }
+    }
+    /* 10. PC 网络中转连接状态反馈 */
+    else if (strcmp(type, "net_status") == 0) {
+        printf("[VocaVibe] 成功处理 net_status 报文!\n");
+        cJSON *jconn = cJSON_GetObjectItem(root, "connected");
+        cJSON *jip = cJSON_GetObjectItem(root, "ip");
+        bool conn = jconn ? cJSON_IsTrue(jconn) : false;
+        const char *ip = jip && jip->valuestring ? jip->valuestring : "127.0.0.1";
+        char status_buf[64];
+        if (conn) {
+            snprintf(status_buf, sizeof(status_buf), "网络代理: 已连接 (%s)", ip);
+        } else {
+            snprintf(status_buf, sizeof(status_buf), "网络代理: 未连接");
+        }
+        vocavibe_ui_set_net_status(conn, status_buf);
     }
 
     cJSON_Delete(root);
