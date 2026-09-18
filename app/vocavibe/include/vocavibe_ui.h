@@ -45,6 +45,7 @@ int  vocavibe_ui_init(const vocavibe_ui_callbacks_t *cbs);
 void vocavibe_ui_poll(void);
 
 void vocavibe_ui_switch_page(int page_idx);
+int  vocavibe_ui_get_current_page(void);
 
 /* 页面 0: 仪表盘数据刷新 */
 void vocavibe_ui_update_dashboard(int total, int due, int reviewed);
