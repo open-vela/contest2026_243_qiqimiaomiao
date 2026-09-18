@@ -21,6 +21,7 @@ typedef void (*vocavibe_ui_ai_query_cb_t)(const char *query);
 typedef void (*vocavibe_ui_sync_cb_t)(void);
 typedef void (*vocavibe_ui_bt_scan_cb_t)(void);
 typedef void (*vocavibe_ui_bt_connect_cb_t)(const char *mac);
+typedef void (*vocavibe_ui_net_connect_cb_t)(void);
 
 typedef struct {
     vocavibe_ui_card_answer_cb_t on_card_answer;
@@ -28,6 +29,7 @@ typedef struct {
     vocavibe_ui_sync_cb_t        on_sync;
     vocavibe_ui_bt_scan_cb_t     on_bt_scan;
     vocavibe_ui_bt_connect_cb_t  on_bt_connect;
+    vocavibe_ui_net_connect_cb_t on_net_connect;
 } vocavibe_ui_callbacks_t;
 
 /* AI 助教动效状态枚举 */
@@ -59,6 +61,7 @@ void vocavibe_ui_append_ai_stream(const char *delta);
 void vocavibe_ui_set_ai_chat(const char *user_query, const char *ai_reply);
 
 /* 页面 3: 蓝牙代理与同步设置 */
+void vocavibe_ui_set_net_status(bool connected, const char *status_str);
 void vocavibe_ui_add_bt_device(const char *name, const char *mac, int rssi);
 void vocavibe_ui_clear_bt_devices(void);
 void vocavibe_ui_set_bt_status(const char *status_str, bool connected);

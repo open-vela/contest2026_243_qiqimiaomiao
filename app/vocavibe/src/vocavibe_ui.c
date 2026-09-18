@@ -101,6 +101,9 @@ static vocavibe_ai_state_t s_ai_state = AI_STATE_IDLE;
 static float s_anim_phase = 0.0f;
 
 /* --- Page 3: 设置与中转代理控件 --- */
+static lv_obj_t *s_net_status_lbl = NULL;
+static lv_obj_t *s_btn_net_conn = NULL;
+static lv_obj_t *s_lbl_net_conn = NULL;
 static lv_obj_t *s_sync_status_lbl = NULL;
 static lv_obj_t *s_bt_status_lbl = NULL;
 static lv_obj_t *s_bt_list = NULL;
@@ -121,10 +124,14 @@ static char s_chat_user_buf[128] = "用户: 你好 openvela!";
 static char s_chat_ai_buf[512] = "AI: 你好！我是随声记 AI 助教，随时为你答疑解惑。";
 static volatile bool s_chat_dirty = true;
 
+static char s_net_status_buf[96] = "网络代理: 未连接";
+static bool s_net_connected = false;
+static volatile bool s_net_dirty = true;
+
 static char s_sync_status_buf[96] = "AnkiConnect 服务: 127.0.0.1:8765 (就绪)";
 static volatile bool s_sync_dirty = true;
 
-static char s_bt_status_buf[96] = "耳机状态: 未连接 (PC 中转代理)";
+static char s_bt_status_buf[96] = "耳机: 未连接";
 static volatile bool s_bt_dirty = true;
 
 #define MAX_BT_DEVICES 5
@@ -232,6 +239,15 @@ static void on_ai_prompt_clicked(lv_event_t *e)
     printf("[VocaVibe UI] 触控点击 AI 胶囊: %s\n", query);
     if (s_cbs.on_ai_query) {
         s_cbs.on_ai_query(query);
+    }
+}
+
+static void on_net_connect_clicked(lv_event_t *e)
+{
+    (void)e;
+    printf("[VocaVibe UI] 触控点击: 请求连接网络代理\n");
+    if (s_cbs.on_net_connect) {
+        s_cbs.on_net_connect();
     }
 }
 
@@ -663,17 +679,42 @@ static void create_page_3_settings(lv_obj_t *parent)
     lv_obj_set_style_bg_color(parent, lv_color_hex(COLOR_PARCHMENT_BG), 0);
     lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* 顶部标题 */
-    lv_obj_t *title = lv_label_create(parent);
-    apply_cjk_font(title);
-    lv_label_set_text(title, "卡组同步与中转代理");
-    lv_obj_set_style_text_color(title, lv_color_hex(COLOR_INK_MAIN), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
+    /* 1. 网络与中转代理状态卡片 (y: 12~70) */
+    lv_obj_t *net_card = lv_obj_create(parent);
+    lv_obj_set_size(net_card, SAFE_CARD_W, 58);
+    lv_obj_align(net_card, LV_ALIGN_TOP_MID, 0, 12);
+    lv_obj_set_style_bg_color(net_card, lv_color_hex(COLOR_PAPER_CARD), 0);
+    lv_obj_set_style_border_color(net_card, lv_color_hex(COLOR_PAPER_BORDER), 0);
+    lv_obj_set_style_border_width(net_card, 2, 0);
+    lv_obj_set_style_radius(net_card, 10, 0);
+    lv_obj_clear_flag(net_card, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* AnkiConnect 同步卡片 */
+    s_net_status_lbl = lv_label_create(net_card);
+    apply_cjk_font(s_net_status_lbl);
+    lv_label_set_text(s_net_status_lbl, "网络代理: 未连接");
+    lv_obj_set_style_text_color(s_net_status_lbl, lv_color_hex(COLOR_INK_MUTED), 0);
+    lv_obj_align(s_net_status_lbl, LV_ALIGN_LEFT_MID, 12, 0);
+
+    s_btn_net_conn = lv_button_create(net_card);
+    lv_obj_set_ext_click_area(s_btn_net_conn, 12);
+    lv_obj_set_size(s_btn_net_conn, 88, 36);
+    lv_obj_align(s_btn_net_conn, LV_ALIGN_RIGHT_MID, -10, 0);
+    lv_obj_set_style_bg_color(s_btn_net_conn, lv_color_hex(COLOR_BTN_SLATE), 0);
+    lv_obj_set_style_radius(s_btn_net_conn, 6, 0);
+    lv_obj_clear_flag(s_btn_net_conn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(s_btn_net_conn, on_net_connect_clicked, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(s_btn_net_conn, on_net_connect_clicked, LV_EVENT_SHORT_CLICKED, NULL);
+
+    s_lbl_net_conn = lv_label_create(s_btn_net_conn);
+    apply_cjk_font(s_lbl_net_conn);
+    lv_label_set_text(s_lbl_net_conn, "连接");
+    lv_obj_set_style_text_color(s_lbl_net_conn, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_center(s_lbl_net_conn);
+
+    /* 2. AnkiConnect 同步卡片 (y: 80~160) */
     lv_obj_t *sync_card = lv_obj_create(parent);
-    lv_obj_set_size(sync_card, SAFE_CARD_W, 92);
-    lv_obj_align(sync_card, LV_ALIGN_TOP_MID, 0, 36);
+    lv_obj_set_size(sync_card, SAFE_CARD_W, 80);
+    lv_obj_align(sync_card, LV_ALIGN_TOP_MID, 0, 80);
     lv_obj_set_style_bg_color(sync_card, lv_color_hex(COLOR_PAPER_CARD), 0);
     lv_obj_set_style_border_color(sync_card, lv_color_hex(COLOR_PAPER_BORDER), 0);
     lv_obj_set_style_border_width(sync_card, 2, 0);
@@ -682,13 +723,13 @@ static void create_page_3_settings(lv_obj_t *parent)
 
     s_sync_status_lbl = lv_label_create(sync_card);
     apply_cjk_font(s_sync_status_lbl);
-    lv_label_set_text(s_sync_status_lbl, "AnkiConnect 服务: 127.0.0.1:8765");
+    lv_label_set_text(s_sync_status_lbl, "Anki 同步: 127.0.0.1:8765");
     lv_obj_set_style_text_color(s_sync_status_lbl, lv_color_hex(COLOR_SEAL_HARD), 0);
-    lv_obj_align(s_sync_status_lbl, LV_ALIGN_TOP_LEFT, 10, 6);
+    lv_obj_align(s_sync_status_lbl, LV_ALIGN_TOP_LEFT, 12, 6);
 
     lv_obj_t *btn_pull = lv_button_create(sync_card);
     lv_obj_set_ext_click_area(btn_pull, 12);
-    lv_obj_set_size(btn_pull, 146, 38);
+    lv_obj_set_size(btn_pull, 146, 36);
     lv_obj_align(btn_pull, LV_ALIGN_BOTTOM_LEFT, 10, -6);
     lv_obj_set_style_bg_color(btn_pull, lv_color_hex(COLOR_SEAL_EASY), 0);
     lv_obj_set_style_radius(btn_pull, 6, 0);
@@ -697,13 +738,13 @@ static void create_page_3_settings(lv_obj_t *parent)
     lv_obj_add_event_cb(btn_pull, on_sync_pull_clicked, LV_EVENT_SHORT_CLICKED, NULL);
     lv_obj_t *lbl_pull = lv_label_create(btn_pull);
     apply_cjk_font(lbl_pull);
-    lv_label_set_text(lbl_pull, "⬇️ 拉取云端卡组");
+    lv_label_set_text(lbl_pull, "⬇️ 拉取卡组");
     lv_obj_set_style_text_color(lbl_pull, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(lbl_pull);
 
     lv_obj_t *btn_push = lv_button_create(sync_card);
     lv_obj_set_ext_click_area(btn_push, 12);
-    lv_obj_set_size(btn_push, 146, 38);
+    lv_obj_set_size(btn_push, 146, 36);
     lv_obj_align(btn_push, LV_ALIGN_BOTTOM_RIGHT, -10, -6);
     lv_obj_set_style_bg_color(btn_push, lv_color_hex(COLOR_SEAL_GOOD), 0);
     lv_obj_set_style_radius(btn_push, 6, 0);
@@ -712,14 +753,14 @@ static void create_page_3_settings(lv_obj_t *parent)
     lv_obj_add_event_cb(btn_push, on_sync_push_clicked, LV_EVENT_SHORT_CLICKED, NULL);
     lv_obj_t *lbl_push = lv_label_create(btn_push);
     apply_cjk_font(lbl_push);
-    lv_label_set_text(lbl_push, "⬆️ 上传端侧进度");
+    lv_label_set_text(lbl_push, "⬆️ 上传进度");
     lv_obj_set_style_text_color(lbl_push, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(lbl_push);
 
-    /* 蓝牙耳机代理设置卡片 */
+    /* 3. 蓝牙耳机代理设置卡片 (y: 170~382) */
     lv_obj_t *bt_card = lv_obj_create(parent);
-    lv_obj_set_size(bt_card, SAFE_CARD_W, 230);
-    lv_obj_align(bt_card, LV_ALIGN_TOP_MID, 0, 134);
+    lv_obj_set_size(bt_card, SAFE_CARD_W, 212);
+    lv_obj_align(bt_card, LV_ALIGN_TOP_MID, 0, 170);
     lv_obj_set_style_bg_color(bt_card, lv_color_hex(COLOR_PAPER_CARD), 0);
     lv_obj_set_style_border_color(bt_card, lv_color_hex(COLOR_PAPER_BORDER), 0);
     lv_obj_set_style_border_width(bt_card, 2, 0);
@@ -728,14 +769,14 @@ static void create_page_3_settings(lv_obj_t *parent)
 
     s_bt_status_lbl = lv_label_create(bt_card);
     apply_cjk_font(s_bt_status_lbl);
-    lv_label_set_text(s_bt_status_lbl, "耳机状态: 未连接 (PC 中转代理)");
+    lv_label_set_text(s_bt_status_lbl, "耳机: 未连接");
     lv_obj_set_style_text_color(s_bt_status_lbl, lv_color_hex(COLOR_INK_MUTED), 0);
-    lv_obj_align(s_bt_status_lbl, LV_ALIGN_TOP_LEFT, 10, 6);
+    lv_obj_align(s_bt_status_lbl, LV_ALIGN_TOP_LEFT, 12, 8);
 
     lv_obj_t *btn_scan = lv_button_create(bt_card);
     lv_obj_set_ext_click_area(btn_scan, 12);
-    lv_obj_set_size(btn_scan, 115, 30);
-    lv_obj_align(btn_scan, LV_ALIGN_TOP_RIGHT, -10, 4);
+    lv_obj_set_size(btn_scan, 88, 30);
+    lv_obj_align(btn_scan, LV_ALIGN_TOP_RIGHT, -10, 5);
     lv_obj_set_style_bg_color(btn_scan, lv_color_hex(COLOR_BTN_SLATE), 0);
     lv_obj_set_style_radius(btn_scan, 6, 0);
     lv_obj_clear_flag(btn_scan, LV_OBJ_FLAG_SCROLLABLE);
@@ -743,12 +784,12 @@ static void create_page_3_settings(lv_obj_t *parent)
     lv_obj_add_event_cb(btn_scan, on_bt_scan_clicked, LV_EVENT_SHORT_CLICKED, NULL);
     lv_obj_t *lbl_scan = lv_label_create(btn_scan);
     apply_cjk_font(lbl_scan);
-    lv_label_set_text(lbl_scan, "🔍 扫描耳机");
+    lv_label_set_text(lbl_scan, "🔍 扫描");
     lv_obj_set_style_text_color(lbl_scan, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(lbl_scan);
 
     s_bt_list = lv_list_create(bt_card);
-    lv_obj_set_size(s_bt_list, 316, 172);
+    lv_obj_set_size(s_bt_list, 316, 154);
     lv_obj_align(s_bt_list, LV_ALIGN_BOTTOM_MID, 0, -6);
     lv_obj_set_style_bg_color(s_bt_list, lv_color_hex(COLOR_PARCHMENT_BG), 0);
     lv_obj_set_style_border_color(s_bt_list, lv_color_hex(COLOR_PAPER_BORDER), 0);
@@ -1004,7 +1045,24 @@ void vocavibe_ui_poll(void)
         }
     }
 
-    /* 6. 同步与蓝牙状态 */
+    /* 6. 网络代理、Anki 同步与蓝牙状态 */
+    if (s_net_dirty) {
+        s_net_dirty = false;
+        if (s_net_status_lbl) {
+            lv_label_set_text(s_net_status_lbl, s_net_status_buf);
+            if (s_net_connected) {
+                lv_obj_set_style_text_color(s_net_status_lbl, lv_color_hex(COLOR_SEAL_EASY), 0);
+            } else {
+                lv_obj_set_style_text_color(s_net_status_lbl, lv_color_hex(COLOR_INK_MUTED), 0);
+            }
+        }
+        if (s_lbl_net_conn) {
+            lv_label_set_text(s_lbl_net_conn, s_net_connected ? "已连接" : "连接");
+        }
+        if (s_btn_net_conn) {
+            lv_obj_set_style_bg_color(s_btn_net_conn, lv_color_hex(s_net_connected ? COLOR_SEAL_GOOD : COLOR_BTN_SLATE), 0);
+        }
+    }
     if (s_sync_dirty) {
         s_sync_dirty = false;
         if (s_sync_status_lbl) lv_label_set_text(s_sync_status_lbl, s_sync_status_buf);
@@ -1126,4 +1184,16 @@ void vocavibe_ui_set_sync_status(const char *status_str)
         s_sync_status_buf[sizeof(s_sync_status_buf) - 1] = '\0';
         s_sync_dirty = true;
     }
+}
+
+void vocavibe_ui_set_net_status(bool connected, const char *status_str)
+{
+    s_net_connected = connected;
+    if (status_str) {
+        strncpy(s_net_status_buf, status_str, sizeof(s_net_status_buf) - 1);
+        s_net_status_buf[sizeof(s_net_status_buf) - 1] = '\0';
+    } else {
+        snprintf(s_net_status_buf, sizeof(s_net_status_buf), "网络代理: %s", connected ? "已连接" : "未连接");
+    }
+    s_net_dirty = true;
 }

@@ -89,6 +89,7 @@ int  vocavibe_core_request_sync(void);
 int  vocavibe_core_request_sync_push(void);
 int  vocavibe_core_request_bt_scan(void);
 int  vocavibe_core_request_bt_connect(const char *mac);
+int  vocavibe_core_request_net_connect(void);
 
 #ifdef __cplusplus
 }

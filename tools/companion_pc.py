@@ -17,6 +17,7 @@ import time
 import json
 import threading
 import subprocess
+import argparse
 import requests
 import serial
 import serial.tools.list_ports
@@ -231,6 +232,10 @@ class VocaVibeCompanion:
                 elif ptype == "tts_speak":
                     text = pkt.get("data", "")
                     threading.Thread(target=self.play_tts_to_headset, args=(text,), daemon=True).start()
+                elif ptype == "net_connect":
+                    print("🤝 [网络握手] 收到开发板网络中转连接请求，正在握手响应...")
+                    self.send_to_board({"type": "net_status", "connected": True, "ip": "127.0.0.1"})
+                    print("✅ 已成功向开发板回传网络代理就绪状态 (127.0.0.1)")
                 elif ptype == "sync_pull":
                     threading.Thread(target=self.sync_from_anki_connect, daemon=True).start()
                 elif ptype == "bt_scan":
@@ -304,16 +309,28 @@ class VocaVibeCompanion:
                 self.running = False
                 break
 
-    def run(self):
+    def run(self, daemon_mode=False):
         self.connect_serial()
         t = threading.Thread(target=self.serial_listen_loop, daemon=True)
         t.start()
-        self.interactive_console()
+        if daemon_mode:
+            print("🌟 VocaVibe PC 伴侣端已进入后台监听常驻模式 (按 Ctrl+C 退出)...")
+            try:
+                while self.running:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                self.running = False
+        else:
+            self.interactive_console()
         if self.ser and self.ser.is_open:
             self.ser.close()
         print("👋 VocaVibe 伴侣网关已安全退出。")
 
 if __name__ == "__main__":
-    port = sys.argv[1] if len(sys.argv) > 1 else "/dev/ttyACM0"
-    companion = VocaVibeCompanion(port=port)
-    companion.run()
+    parser = argparse.ArgumentParser(description="VocaVibe PC Companion Gateway")
+    parser.add_argument("port", nargs="?", default="/dev/ttyACM0", help="Serial port device (default: /dev/ttyACM0)")
+    parser.add_argument("-d", "--daemon", action="store_true", help="Run in background daemon mode without interactive CLI")
+    args = parser.parse_args()
+
+    companion = VocaVibeCompanion(port=args.port)
+    companion.run(daemon_mode=args.daemon)
