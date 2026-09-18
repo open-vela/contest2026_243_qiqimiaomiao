@@ -48,8 +48,10 @@ LV_FONT_DECLARE(lv_font_simsun_16_cjk);
 
 #define SCREEN_W 390
 #define SCREEN_H 450
-#define NAV_H    50
-#define TV_H     (SCREEN_H - NAV_H)
+#define NAV_H    46
+#define TV_H     SCREEN_H
+#define SAFE_CARD_W 336
+#define DOCK_W      340
 
 static vocavibe_ui_callbacks_t s_cbs;
 
@@ -135,20 +137,30 @@ static bt_dev_entry_t s_bt_entries[MAX_BT_DEVICES];
 static int s_bt_entry_count = 0;
 static volatile bool s_bt_list_dirty = false;
 static volatile int s_switch_to_page = -1;
+static int s_current_page = 0;
+
+int vocavibe_ui_get_current_page(void)
+{
+    return s_current_page;
+}
 
 /* -------------------------------------------------------------------------
  * 事件回调函数
  * ------------------------------------------------------------------------- */
 static void update_nav_buttons_style(int active_idx)
 {
+    s_current_page = active_idx;
     for (int i = 0; i < 4; i++) {
         if (s_nav_btns[i]) {
+            lv_obj_t *lbl = lv_obj_get_child(s_nav_btns[i], 0);
             if (i == active_idx) {
                 lv_obj_set_style_bg_color(s_nav_btns[i], lv_color_hex(COLOR_NAV_ACTIVE), 0);
                 lv_obj_set_style_border_color(s_nav_btns[i], lv_color_hex(0x5D2E0C), 0);
+                if (lbl) lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
             } else {
                 lv_obj_set_style_bg_color(s_nav_btns[i], lv_color_hex(COLOR_NAV_INACTIVE), 0);
                 lv_obj_set_style_border_color(s_nav_btns[i], lv_color_hex(COLOR_PAPER_BORDER), 0);
+                if (lbl) lv_obj_set_style_text_color(lbl, lv_color_hex(COLOR_INK_MAIN), 0);
             }
         }
     }
@@ -236,9 +248,7 @@ static void on_sync_push_clicked(lv_event_t *e)
 {
     (void)e;
     printf("[VocaVibe UI] 触控点击: 上传端侧学习进度到 AnkiWeb\n");
-    if (s_cbs.on_sync) {
-        s_cbs.on_sync();
-    }
+    vocavibe_core_request_sync_push();
 }
 
 static void on_bt_scan_clicked(lv_event_t *e)
@@ -327,7 +337,7 @@ static void create_page_0_dashboard(lv_obj_t *parent)
     /* 快捷手账大按钮 1: 进入 Anki 复习 */
     lv_obj_t *btn_study = lv_button_create(parent);
     lv_obj_set_ext_click_area(btn_study, 12);
-    lv_obj_set_size(btn_study, 360, 68);
+    lv_obj_set_size(btn_study, SAFE_CARD_W, 64);
     lv_obj_align(btn_study, LV_ALIGN_TOP_MID, 0, 175);
     lv_obj_set_style_bg_color(btn_study, lv_color_hex(COLOR_BTN_BROWN), 0);
     lv_obj_set_style_border_color(btn_study, lv_color_hex(0x5D3A20), 0);
@@ -346,7 +356,7 @@ static void create_page_0_dashboard(lv_obj_t *parent)
     /* 快捷手账大按钮 2: AI 助教实时问答 */
     lv_obj_t *btn_ai = lv_button_create(parent);
     lv_obj_set_ext_click_area(btn_ai, 12);
-    lv_obj_set_size(btn_ai, 360, 68);
+    lv_obj_set_size(btn_ai, SAFE_CARD_W, 64);
     lv_obj_align(btn_ai, LV_ALIGN_TOP_MID, 0, 255);
     lv_obj_set_style_bg_color(btn_ai, lv_color_hex(COLOR_BTN_SLATE), 0);
     lv_obj_set_style_border_color(btn_ai, lv_color_hex(0x37474F), 0);
@@ -403,7 +413,7 @@ static void create_page_1_anki_study(lv_obj_t *parent)
 
     /* 主卡片区域（柔白纸质感便签） */
     lv_obj_t *card_box = lv_obj_create(parent);
-    lv_obj_set_size(card_box, 360, 220);
+    lv_obj_set_size(card_box, SAFE_CARD_W, 220);
     lv_obj_align(card_box, LV_ALIGN_TOP_MID, 0, 40);
     lv_obj_set_style_bg_color(card_box, lv_color_hex(COLOR_PAPER_CARD), 0);
     lv_obj_set_style_border_color(card_box, lv_color_hex(COLOR_PAPER_BORDER), 0);
@@ -427,7 +437,7 @@ static void create_page_1_anki_study(lv_obj_t *parent)
     /* 背面内容（中文释义与例句，翻面前默认隐藏） */
     s_p1_meaning_lbl = lv_label_create(card_box);
     apply_cjk_font(s_p1_meaning_lbl);
-    lv_obj_set_size(s_p1_meaning_lbl, 330, 60);
+    lv_obj_set_size(s_p1_meaning_lbl, 306, 60);
     lv_label_set_long_mode(s_p1_meaning_lbl, LV_LABEL_LONG_WRAP);
     lv_label_set_text(s_p1_meaning_lbl, "嵌入式微控制器专属的下一代端侧实时 AI 操作系统");
     lv_obj_set_style_text_color(s_p1_meaning_lbl, lv_color_hex(COLOR_SEAL_GOOD), 0);
@@ -436,7 +446,7 @@ static void create_page_1_anki_study(lv_obj_t *parent)
 
     s_p1_example_lbl = lv_label_create(card_box);
     apply_cjk_font(s_p1_example_lbl);
-    lv_obj_set_size(s_p1_example_lbl, 330, 75);
+    lv_obj_set_size(s_p1_example_lbl, 306, 75);
     lv_label_set_long_mode(s_p1_example_lbl, LV_LABEL_LONG_WRAP);
     lv_label_set_text(s_p1_example_lbl, "例句: OpenVela OS powers intelligent edge hardware with microsecond latency.");
     lv_obj_set_style_text_color(s_p1_example_lbl, lv_color_hex(COLOR_INK_MUTED), 0);
@@ -462,8 +472,8 @@ static void create_page_1_anki_study(lv_obj_t *parent)
 
     /* 底部标准 Anki 4 档印章评分按键容器（翻面后显示） */
     s_p1_ratings_cont = lv_obj_create(parent);
-    lv_obj_set_size(s_p1_ratings_cont, 370, 110);
-    lv_obj_align(s_p1_ratings_cont, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_obj_set_size(s_p1_ratings_cont, SAFE_CARD_W, 102);
+    lv_obj_align(s_p1_ratings_cont, LV_ALIGN_BOTTOM_MID, 0, -68);
     lv_obj_set_style_bg_opa(s_p1_ratings_cont, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(s_p1_ratings_cont, 0, 0);
     lv_obj_set_style_pad_all(s_p1_ratings_cont, 0, 0);
@@ -474,7 +484,7 @@ static void create_page_1_anki_study(lv_obj_t *parent)
     /* 1. 重来 (1m) */
     lv_obj_t *b1 = lv_button_create(s_p1_ratings_cont);
     lv_obj_set_ext_click_area(b1, 12);
-    lv_obj_set_size(b1, 175, 48);
+    lv_obj_set_size(b1, 162, 46);
     lv_obj_align(b1, LV_ALIGN_TOP_LEFT, 5, 0);
     lv_obj_set_style_bg_color(b1, lv_color_hex(COLOR_SEAL_AGAIN), 0);
     lv_obj_set_style_radius(b1, 10, 0);
@@ -490,7 +500,7 @@ static void create_page_1_anki_study(lv_obj_t *parent)
     /* 2. 困难 (1d) */
     lv_obj_t *b2 = lv_button_create(s_p1_ratings_cont);
     lv_obj_set_ext_click_area(b2, 12);
-    lv_obj_set_size(b2, 175, 48);
+    lv_obj_set_size(b2, 162, 46);
     lv_obj_align(b2, LV_ALIGN_TOP_RIGHT, -5, 0);
     lv_obj_set_style_bg_color(b2, lv_color_hex(COLOR_SEAL_HARD), 0);
     lv_obj_set_style_radius(b2, 10, 0);
@@ -506,7 +516,7 @@ static void create_page_1_anki_study(lv_obj_t *parent)
     /* 3. 良好 (3d) */
     lv_obj_t *b3 = lv_button_create(s_p1_ratings_cont);
     lv_obj_set_ext_click_area(b3, 12);
-    lv_obj_set_size(b3, 175, 48);
+    lv_obj_set_size(b3, 162, 46);
     lv_obj_align(b3, LV_ALIGN_BOTTOM_LEFT, 5, 0);
     lv_obj_set_style_bg_color(b3, lv_color_hex(COLOR_SEAL_GOOD), 0);
     lv_obj_set_style_radius(b3, 10, 0);
@@ -522,7 +532,7 @@ static void create_page_1_anki_study(lv_obj_t *parent)
     /* 4. 容易 (7d) */
     lv_obj_t *b4 = lv_button_create(s_p1_ratings_cont);
     lv_obj_set_ext_click_area(b4, 12);
-    lv_obj_set_size(b4, 175, 48);
+    lv_obj_set_size(b4, 162, 46);
     lv_obj_align(b4, LV_ALIGN_BOTTOM_RIGHT, -5, 0);
     lv_obj_set_style_bg_color(b4, lv_color_hex(COLOR_SEAL_EASY), 0);
     lv_obj_set_style_radius(b4, 10, 0);
@@ -577,7 +587,7 @@ static void create_page_2_ai_assistant(lv_obj_t *parent)
 
     /* 便签式对话消息区（柔白卡片质感） */
     lv_obj_t *chat_cont = lv_obj_create(parent);
-    lv_obj_set_size(chat_cont, 360, 195);
+    lv_obj_set_size(chat_cont, SAFE_CARD_W, 195);
     lv_obj_align(chat_cont, LV_ALIGN_TOP_MID, 0, 110);
     lv_obj_set_style_bg_color(chat_cont, lv_color_hex(COLOR_PAPER_CARD), 0);
     lv_obj_set_style_border_color(chat_cont, lv_color_hex(COLOR_PAPER_BORDER), 0);
@@ -587,7 +597,7 @@ static void create_page_2_ai_assistant(lv_obj_t *parent)
 
     s_chat_user_lbl = lv_label_create(chat_cont);
     apply_cjk_font(s_chat_user_lbl);
-    lv_obj_set_size(s_chat_user_lbl, 330, 42);
+    lv_obj_set_size(s_chat_user_lbl, 316, 42);
     lv_label_set_long_mode(s_chat_user_lbl, LV_LABEL_LONG_WRAP);
     lv_label_set_text(s_chat_user_lbl, "用户: 你好 openvela!");
     lv_obj_set_style_text_color(s_chat_user_lbl, lv_color_hex(COLOR_SEAL_HARD), 0);
@@ -595,7 +605,7 @@ static void create_page_2_ai_assistant(lv_obj_t *parent)
 
     s_chat_ai_lbl = lv_label_create(chat_cont);
     apply_cjk_font(s_chat_ai_lbl);
-    lv_obj_set_size(s_chat_ai_lbl, 330, 135);
+    lv_obj_set_size(s_chat_ai_lbl, 316, 135);
     lv_label_set_long_mode(s_chat_ai_lbl, LV_LABEL_LONG_WRAP);
     lv_label_set_text(s_chat_ai_lbl, "AI: 你好！我是随声记 AI 助教，随时为你答疑解惑。");
     lv_obj_set_style_text_color(s_chat_ai_lbl, lv_color_hex(COLOR_INK_MAIN), 0);
@@ -604,8 +614,8 @@ static void create_page_2_ai_assistant(lv_obj_t *parent)
     /* 底部 3 个快捷便签胶囊按钮 */
     lv_obj_t *b_ex = lv_button_create(parent);
     lv_obj_set_ext_click_area(b_ex, 12);
-    lv_obj_set_size(b_ex, 110, 42);
-    lv_obj_align(b_ex, LV_ALIGN_BOTTOM_LEFT, 15, -15);
+    lv_obj_set_size(b_ex, 104, 40);
+    lv_obj_align(b_ex, LV_ALIGN_BOTTOM_LEFT, 27, -68);
     lv_obj_set_style_bg_color(b_ex, lv_color_hex(COLOR_BTN_SLATE), 0);
     lv_obj_set_style_radius(b_ex, 8, 0);
     lv_obj_clear_flag(b_ex, LV_OBJ_FLAG_SCROLLABLE);
@@ -619,8 +629,8 @@ static void create_page_2_ai_assistant(lv_obj_t *parent)
 
     lv_obj_t *b_syn = lv_button_create(parent);
     lv_obj_set_ext_click_area(b_syn, 12);
-    lv_obj_set_size(b_syn, 110, 42);
-    lv_obj_align(b_syn, LV_ALIGN_BOTTOM_MID, 0, -15);
+    lv_obj_set_size(b_syn, 104, 40);
+    lv_obj_align(b_syn, LV_ALIGN_BOTTOM_MID, 0, -68);
     lv_obj_set_style_bg_color(b_syn, lv_color_hex(COLOR_BTN_BROWN), 0);
     lv_obj_set_style_radius(b_syn, 8, 0);
     lv_obj_clear_flag(b_syn, LV_OBJ_FLAG_SCROLLABLE);
@@ -634,8 +644,8 @@ static void create_page_2_ai_assistant(lv_obj_t *parent)
 
     lv_obj_t *b_root = lv_button_create(parent);
     lv_obj_set_ext_click_area(b_root, 12);
-    lv_obj_set_size(b_root, 110, 42);
-    lv_obj_align(b_root, LV_ALIGN_BOTTOM_RIGHT, -15, -15);
+    lv_obj_set_size(b_root, 104, 40);
+    lv_obj_align(b_root, LV_ALIGN_BOTTOM_RIGHT, -27, -68);
     lv_obj_set_style_bg_color(b_root, lv_color_hex(COLOR_SEAL_GOOD), 0);
     lv_obj_set_style_radius(b_root, 8, 0);
     lv_obj_clear_flag(b_root, LV_OBJ_FLAG_SCROLLABLE);
@@ -662,7 +672,7 @@ static void create_page_3_settings(lv_obj_t *parent)
 
     /* AnkiConnect 同步卡片 */
     lv_obj_t *sync_card = lv_obj_create(parent);
-    lv_obj_set_size(sync_card, 360, 95);
+    lv_obj_set_size(sync_card, SAFE_CARD_W, 92);
     lv_obj_align(sync_card, LV_ALIGN_TOP_MID, 0, 36);
     lv_obj_set_style_bg_color(sync_card, lv_color_hex(COLOR_PAPER_CARD), 0);
     lv_obj_set_style_border_color(sync_card, lv_color_hex(COLOR_PAPER_BORDER), 0);
@@ -678,7 +688,7 @@ static void create_page_3_settings(lv_obj_t *parent)
 
     lv_obj_t *btn_pull = lv_button_create(sync_card);
     lv_obj_set_ext_click_area(btn_pull, 12);
-    lv_obj_set_size(btn_pull, 150, 42);
+    lv_obj_set_size(btn_pull, 146, 38);
     lv_obj_align(btn_pull, LV_ALIGN_BOTTOM_LEFT, 10, -6);
     lv_obj_set_style_bg_color(btn_pull, lv_color_hex(COLOR_SEAL_EASY), 0);
     lv_obj_set_style_radius(btn_pull, 6, 0);
@@ -693,7 +703,7 @@ static void create_page_3_settings(lv_obj_t *parent)
 
     lv_obj_t *btn_push = lv_button_create(sync_card);
     lv_obj_set_ext_click_area(btn_push, 12);
-    lv_obj_set_size(btn_push, 150, 42);
+    lv_obj_set_size(btn_push, 146, 38);
     lv_obj_align(btn_push, LV_ALIGN_BOTTOM_RIGHT, -10, -6);
     lv_obj_set_style_bg_color(btn_push, lv_color_hex(COLOR_SEAL_GOOD), 0);
     lv_obj_set_style_radius(btn_push, 6, 0);
@@ -708,8 +718,8 @@ static void create_page_3_settings(lv_obj_t *parent)
 
     /* 蓝牙耳机代理设置卡片 */
     lv_obj_t *bt_card = lv_obj_create(parent);
-    lv_obj_set_size(bt_card, 360, 185);
-    lv_obj_align(bt_card, LV_ALIGN_TOP_MID, 0, 138);
+    lv_obj_set_size(bt_card, SAFE_CARD_W, 230);
+    lv_obj_align(bt_card, LV_ALIGN_TOP_MID, 0, 134);
     lv_obj_set_style_bg_color(bt_card, lv_color_hex(COLOR_PAPER_CARD), 0);
     lv_obj_set_style_border_color(bt_card, lv_color_hex(COLOR_PAPER_BORDER), 0);
     lv_obj_set_style_border_width(bt_card, 2, 0);
@@ -738,8 +748,8 @@ static void create_page_3_settings(lv_obj_t *parent)
     lv_obj_center(lbl_scan);
 
     s_bt_list = lv_list_create(bt_card);
-    lv_obj_set_size(s_bt_list, 340, 130);
-    lv_obj_align(s_bt_list, LV_ALIGN_BOTTOM_MID, 0, -5);
+    lv_obj_set_size(s_bt_list, 316, 172);
+    lv_obj_align(s_bt_list, LV_ALIGN_BOTTOM_MID, 0, -6);
     lv_obj_set_style_bg_color(s_bt_list, lv_color_hex(COLOR_PARCHMENT_BG), 0);
     lv_obj_set_style_border_color(s_bt_list, lv_color_hex(COLOR_PAPER_BORDER), 0);
     lv_obj_set_style_border_width(s_bt_list, 1, 0);
@@ -748,25 +758,26 @@ static void create_page_3_settings(lv_obj_t *parent)
 
 static void create_bottom_nav_bar(lv_obj_t *scr)
 {
+    /* 悬浮胶囊式手账 Dock 栏：避让 AMOLED 屏幕大圆角，底部悬浮 12px */
     lv_obj_t *nav = lv_obj_create(scr);
-    lv_obj_set_size(nav, SCREEN_W, NAV_H);
-    lv_obj_align(nav, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_size(nav, DOCK_W, NAV_H);
+    lv_obj_align(nav, LV_ALIGN_BOTTOM_MID, 0, -12);
     lv_obj_set_style_bg_color(nav, lv_color_hex(0xECE3D0), 0);
     lv_obj_set_style_border_color(nav, lv_color_hex(COLOR_PAPER_BORDER), 0);
-    lv_obj_set_style_border_side(nav, LV_BORDER_SIDE_TOP, 0);
     lv_obj_set_style_border_width(nav, 2, 0);
-    lv_obj_set_style_radius(nav, 0, 0);
-    lv_obj_set_style_pad_all(nav, 0, 0);
+    lv_obj_set_style_radius(nav, 23, 0);
+    lv_obj_set_style_pad_all(nav, 4, 0);
     lv_obj_clear_flag(nav, LV_OBJ_FLAG_SCROLLABLE);
 
     const char *tabs[] = {"仪表盘", "记忆卡", "AI助教", "设置"};
-    int btn_w = 88;
+    int tab_w = 78;
+    int gap = 5;
     for (int i = 0; i < 4; i++) {
         s_nav_btns[i] = lv_button_create(nav);
         lv_obj_set_ext_click_area(s_nav_btns[i], 12);
-        lv_obj_set_size(s_nav_btns[i], btn_w, 40);
-        lv_obj_align(s_nav_btns[i], LV_ALIGN_LEFT_MID, 6 + i * 94, 0);
-        lv_obj_set_style_radius(s_nav_btns[i], 8, 0);
+        lv_obj_set_size(s_nav_btns[i], tab_w, 36);
+        lv_obj_align(s_nav_btns[i], LV_ALIGN_LEFT_MID, 4 + i * (tab_w + gap), 0);
+        lv_obj_set_style_radius(s_nav_btns[i], 18, 0);
         lv_obj_set_style_border_width(s_nav_btns[i], 1, 0);
         lv_obj_clear_flag(s_nav_btns[i], LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_event_cb(s_nav_btns[i], on_nav_btn_clicked, LV_EVENT_CLICKED, (void *)(uintptr_t)i);

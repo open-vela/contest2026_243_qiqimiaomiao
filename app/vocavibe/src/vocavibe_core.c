@@ -448,6 +448,34 @@ int vocavibe_core_request_sync(void)
     return vocavibe_core_send_json("sync_pull", NULL);
 }
 
+int vocavibe_core_request_sync_push(void)
+{
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "type", "sync_push");
+    cJSON *arr = cJSON_CreateArray();
+    for (int i = 0; i < s_card_count; i++) {
+        anki_card_t *c = &s_cards[i];
+        cJSON *item = cJSON_CreateObject();
+        cJSON_AddNumberToObject(item, "id", c->id);
+        cJSON_AddStringToObject(item, "word", c->word);
+        cJSON_AddNumberToObject(item, "interval", c->interval);
+        cJSON_AddNumberToObject(item, "factor", c->factor);
+        cJSON_AddNumberToObject(item, "reps", c->reps);
+        cJSON_AddBoolToObject(item, "reviewed", c->reviewed);
+        cJSON_AddItemToArray(arr, item);
+    }
+    cJSON_AddItemToObject(root, "cards", arr);
+    char *out = cJSON_PrintUnformatted(root);
+    if (out) {
+        printf("[JSON] %s\n", out);
+        fflush(stdout);
+        free(out);
+    }
+    cJSON_Delete(root);
+    return 0;
+}
+
+
 int vocavibe_core_request_bt_scan(void)
 {
     return vocavibe_core_send_json("bt_scan", NULL);
@@ -565,6 +593,7 @@ void vocavibe_core_handle_line(const char *line)
     }
     /* 6. 蓝牙耳机连接状态反馈 */
     else if (strcmp(type, "bt_status") == 0) {
+        printf("[VocaVibe] 成功处理 bt_status 报文!\n");
         cJSON *jconn = cJSON_GetObjectItem(root, "connected");
         cJSON *jname = cJSON_GetObjectItem(root, "name");
         bool conn = jconn ? cJSON_IsTrue(jconn) : false;
