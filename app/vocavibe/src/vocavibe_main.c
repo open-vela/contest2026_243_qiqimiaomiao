@@ -102,6 +102,14 @@ static void *serial_reader_thread(void *arg)
             vocavibe_deck_answer_card(ANKI_RATING_GOOD);
         } else if (strncmp(p, "ai ", 3) == 0) {
             vocavibe_core_request_ai(p + 3);
+        } else if (strcmp(p, "dump") == 0) {
+            vocavibe_ui_dump_layout();
+        } else if (strncmp(p, "page ", 5) == 0) {
+            int p_idx = atoi(p + 5);
+            if (p_idx >= 0 && p_idx <= 3) {
+                vocavibe_ui_switch_page(p_idx);
+                printf("[VocaVibe] 切换至页面 %d\n", p_idx);
+            }
         } else if (strcmp(p, "exit") == 0 || strcmp(p, "quit") == 0) {
             printf("[VocaVibe] 退出应用程序\n");
             s_app_running = false;
