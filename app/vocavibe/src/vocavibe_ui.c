@@ -738,7 +738,7 @@ static void create_page_3_settings(lv_obj_t *parent)
     lv_obj_add_event_cb(btn_pull, on_sync_pull_clicked, LV_EVENT_SHORT_CLICKED, NULL);
     lv_obj_t *lbl_pull = lv_label_create(btn_pull);
     apply_cjk_font(lbl_pull);
-    lv_label_set_text(lbl_pull, "⬇️ 拉取卡组");
+    lv_label_set_text(lbl_pull, "拉取卡组");
     lv_obj_set_style_text_color(lbl_pull, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(lbl_pull);
 
@@ -753,30 +753,31 @@ static void create_page_3_settings(lv_obj_t *parent)
     lv_obj_add_event_cb(btn_push, on_sync_push_clicked, LV_EVENT_SHORT_CLICKED, NULL);
     lv_obj_t *lbl_push = lv_label_create(btn_push);
     apply_cjk_font(lbl_push);
-    lv_label_set_text(lbl_push, "⬆️ 上传进度");
+    lv_label_set_text(lbl_push, "上传进度");
     lv_obj_set_style_text_color(lbl_push, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(lbl_push);
 
     /* 3. 蓝牙耳机代理设置卡片 (y: 170~382) */
     lv_obj_t *bt_card = lv_obj_create(parent);
-    lv_obj_set_size(bt_card, SAFE_CARD_W, 212);
+    lv_obj_set_size(bt_card, SAFE_CARD_W, 206);
     lv_obj_align(bt_card, LV_ALIGN_TOP_MID, 0, 170);
     lv_obj_set_style_bg_color(bt_card, lv_color_hex(COLOR_PAPER_CARD), 0);
     lv_obj_set_style_border_color(bt_card, lv_color_hex(COLOR_PAPER_BORDER), 0);
     lv_obj_set_style_border_width(bt_card, 2, 0);
     lv_obj_set_style_radius(bt_card, 10, 0);
+    lv_obj_set_style_pad_all(bt_card, 8, 0);
     lv_obj_clear_flag(bt_card, LV_OBJ_FLAG_SCROLLABLE);
 
     s_bt_status_lbl = lv_label_create(bt_card);
     apply_cjk_font(s_bt_status_lbl);
     lv_label_set_text(s_bt_status_lbl, "耳机: 未连接");
     lv_obj_set_style_text_color(s_bt_status_lbl, lv_color_hex(COLOR_INK_MUTED), 0);
-    lv_obj_align(s_bt_status_lbl, LV_ALIGN_TOP_LEFT, 12, 8);
+    lv_obj_align(s_bt_status_lbl, LV_ALIGN_TOP_LEFT, 6, 8);
 
     lv_obj_t *btn_scan = lv_button_create(bt_card);
     lv_obj_set_ext_click_area(btn_scan, 12);
-    lv_obj_set_size(btn_scan, 88, 30);
-    lv_obj_align(btn_scan, LV_ALIGN_TOP_RIGHT, -10, 5);
+    lv_obj_set_size(btn_scan, 80, 30);
+    lv_obj_align(btn_scan, LV_ALIGN_TOP_RIGHT, -6, 4);
     lv_obj_set_style_bg_color(btn_scan, lv_color_hex(COLOR_BTN_SLATE), 0);
     lv_obj_set_style_radius(btn_scan, 6, 0);
     lv_obj_clear_flag(btn_scan, LV_OBJ_FLAG_SCROLLABLE);
@@ -784,17 +785,21 @@ static void create_page_3_settings(lv_obj_t *parent)
     lv_obj_add_event_cb(btn_scan, on_bt_scan_clicked, LV_EVENT_SHORT_CLICKED, NULL);
     lv_obj_t *lbl_scan = lv_label_create(btn_scan);
     apply_cjk_font(lbl_scan);
-    lv_label_set_text(lbl_scan, "🔍 扫描");
+    lv_label_set_text(lbl_scan, "扫描");
     lv_obj_set_style_text_color(lbl_scan, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(lbl_scan);
 
     s_bt_list = lv_list_create(bt_card);
-    lv_obj_set_size(s_bt_list, 316, 154);
-    lv_obj_align(s_bt_list, LV_ALIGN_BOTTOM_MID, 0, -6);
+    lv_obj_set_size(s_bt_list, 304, 142);
+    lv_obj_align(s_bt_list, LV_ALIGN_TOP_MID, 0, 42);
     lv_obj_set_style_bg_color(s_bt_list, lv_color_hex(COLOR_PARCHMENT_BG), 0);
     lv_obj_set_style_border_color(s_bt_list, lv_color_hex(COLOR_PAPER_BORDER), 0);
     lv_obj_set_style_border_width(s_bt_list, 1, 0);
     lv_obj_set_style_radius(s_bt_list, 6, 0);
+
+    lv_obj_t *placeholder = lv_list_add_text(s_bt_list, "暂未连接耳机，请点击右上角扫描");
+    apply_cjk_font(placeholder);
+    lv_obj_set_style_text_color(placeholder, lv_color_hex(COLOR_INK_MUTED), 0);
 }
 
 static void create_bottom_nav_bar(lv_obj_t *scr)
@@ -1086,9 +1091,9 @@ void vocavibe_ui_poll(void)
         }
     }
 
-    /* 8. 处理 LVGL 定时器和双模触控事件 */
+    /* 8. 处理 LVGL 定时器和双模触控事件 (提高到 100Hz+ 采样率以提升触控灵敏度) */
     uint32_t idle = lv_timer_handler();
-    idle = (idle > 0 && idle <= 35) ? idle : 15;
+    idle = (idle > 0 && idle <= 10) ? idle : 8;
     usleep(idle * 1000);
 }
 

@@ -94,7 +94,18 @@ static void vocavibe_touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
   int y = s_last_y;
   lv_indev_state_t cur_state = LV_INDEV_STATE_RELEASED;
 
-  /* 途径 1: 优先尝试读取内核 input0 驱动缓冲区 */
+  /* 途径 1: 优先尝试读取内核 input0 驱动缓冲区 (支持运行时动态重连) */
+  static int s_reopen_counter = 0;
+  if (s_input_fd < 0 && ++s_reopen_counter >= 20)
+    {
+      s_reopen_counter = 0;
+      s_input_fd = open("/dev/input0", O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+      if (s_input_fd >= 0)
+        {
+          printf("[VocaVibe Touch] 成功动态热连接 /dev/input0 (fd=%d)\n", s_input_fd);
+        }
+    }
+
   if (s_input_fd >= 0)
     {
       struct touch_sample_s sample;
@@ -170,15 +181,24 @@ lv_indev_t *vocavibe_touch_init(lv_display_t *disp)
 {
   printf("[VocaVibe Touch] 正在初始化 FT6146 双模触控引擎...\n");
 
-  /* 1. 打开内核字符设备 input0 (非阻塞) */
-  s_input_fd = open("/dev/input0", O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+  /* 1. 打开内核字符设备 input0 (非阻塞，支持等候异步板级驱动就绪) */
+  for (int retry = 0; retry < 12; retry++)
+    {
+      s_input_fd = open("/dev/input0", O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+      if (s_input_fd >= 0)
+        {
+          break;
+        }
+      usleep(25000);
+    }
+
   if (s_input_fd >= 0)
     {
-      printf("[VocaVibe Touch] /dev/input0 已连接 (fd=%d)\n", s_input_fd);
+      printf("[VocaVibe Touch] /dev/input0 内核中断触控已连接 (fd=%d)\n", s_input_fd);
     }
   else
     {
-      printf("[VocaVibe Touch] /dev/input0 打开失败 (errno=%d)，使用硬件 I2C 直连\n", errno);
+      printf("[VocaVibe Touch] /dev/input0 暂未就绪 (errno=%d)，启用 I2C 直连与热重连\n", errno);
     }
 
   /* 2. 打开底层 I2C0 总线用于硬件直通兜底 */

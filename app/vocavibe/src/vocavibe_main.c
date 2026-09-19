@@ -156,43 +156,34 @@ int main(int argc, char *argv[])
 
     /* 5. 主线程 UI 循环：负责图形渲染、触摸事件实时派发与物理按键响应 */
     int btn_fd = open("/dev/buttons", O_RDONLY | O_NONBLOCK);
+    btn_buttonset_t idle_buttons = 0;
+    btn_buttonset_t last_buttons = 0;
     if (btn_fd >= 0) {
-        printf("[VocaVibe] 成功启用 /dev/buttons 物理按键监听 (KEY1/KEY2 支持菜单切换)\n");
+        printf("[VocaVibe] 成功启用 /dev/buttons 物理按键监听 (KEY 功能键支持菜单轮换)\n");
+        /* 采样初始空闲电平，自动校准按键极性并消除开机误触发 */
+        usleep(10000);
+        read(btn_fd, &idle_buttons, sizeof(btn_buttonset_t));
+        last_buttons = idle_buttons;
     } else {
         printf("[VocaVibe] 提示: 未检测到 /dev/buttons 或打开失败 (errno=%d)\n", errno);
     }
 
-    btn_buttonset_t last_buttons = 0;
+    uint32_t last_btn_tick = 0;
     while (s_app_running) {
         if (btn_fd >= 0) {
             btn_buttonset_t current_buttons = 0;
             ssize_t nbytes = read(btn_fd, &current_buttons, sizeof(btn_buttonset_t));
             if (nbytes == sizeof(btn_buttonset_t)) {
-                btn_buttonset_t pressed = current_buttons & (~last_buttons);
-                if (pressed) {
-                    int cur = vocavibe_ui_get_current_page();
-                    /* 检查低位按键：KEY1 (bit 0), KEY2 (bit 1) */
-                    if (pressed & 0x02) {
-                        /* KEY2 (PA11): 向右循环切换下一个菜单 */
+                /* 当电平偏离空闲电平时判定为按下，结合 200ms 防抖 */
+                if (current_buttons != idle_buttons && last_buttons == idle_buttons) {
+                    struct timespec ts;
+                    clock_gettime(CLOCK_MONOTONIC, &ts);
+                    uint32_t now_ms = (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+                    if (now_ms - last_btn_tick > 200) {
+                        last_btn_tick = now_ms;
+                        int cur = vocavibe_ui_get_current_page();
                         int next_p = (cur + 1) % 4;
-                        printf("[VocaVibe Key] KEY2 触发 -> 切换到页面 %d\n", next_p);
-                        vocavibe_ui_switch_page(next_p);
-                    } else if (pressed & 0x01) {
-                        /* KEY1: 向左循环切换上一菜单 (或在记忆卡页面翻转卡片) */
-                        if (cur == 1) {
-                            printf("[VocaVibe Key] KEY1 触发 -> 记忆卡翻面\n");
-                            vocavibe_ui_show_card(vocavibe_deck_get_current_card(), true,
-                                                 vocavibe_deck_get_current_index() + 1,
-                                                 vocavibe_deck_get_total_count());
-                        } else {
-                            int prev_p = (cur + 3) % 4;
-                            printf("[VocaVibe Key] KEY1 触发 -> 切换到页面 %d\n", prev_p);
-                            vocavibe_ui_switch_page(prev_p);
-                        }
-                    } else {
-                        /* 其他位按键默认递增切换 */
-                        int next_p = (cur + 1) % 4;
-                        printf("[VocaVibe Key] 物理按键 0x%08X 触发 -> 切换到页面 %d\n", (unsigned int)pressed, next_p);
+                        printf("[VocaVibe Key] KEY 物理按键触发 -> 切换到页面 %d\n", next_p);
                         vocavibe_ui_switch_page(next_p);
                     }
                 }
