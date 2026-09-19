@@ -301,14 +301,6 @@ static void on_bt_scan_clicked(lv_event_t *e)
     printf("[VocaVibe UI] 触控点击: 扫描周围蓝牙设备\n");
     s_bt_scan_timeout_ms = 3000;
     vocavibe_ui_clear_bt_devices();
-    if (s_bt_list) {
-        lv_obj_clean(s_bt_list);
-        lv_obj_t *placeholder = lv_label_create(s_bt_list);
-        apply_cjk_font(placeholder);
-        lv_label_set_text(placeholder, "正在扫描周围设备...");
-        lv_obj_set_style_text_color(placeholder, lv_color_hex(COLOR_SEAL_HARD), 0);
-        lv_obj_center(placeholder);
-    }
     if (s_cbs.on_bt_scan) {
         s_cbs.on_bt_scan();
     }
@@ -1150,8 +1142,13 @@ void vocavibe_ui_poll(void)
         if (s_bt_entry_count == 0) {
             lv_obj_t *placeholder = lv_label_create(s_bt_list);
             apply_cjk_font(placeholder);
-            lv_label_set_text(placeholder, "点击右上角刷新扫描周围设备");
-            lv_obj_set_style_text_color(placeholder, lv_color_hex(COLOR_INK_MUTED), 0);
+            if (s_bt_scan_timeout_ms > 0) {
+                lv_label_set_text(placeholder, "正在扫描周围设备...");
+                lv_obj_set_style_text_color(placeholder, lv_color_hex(COLOR_SEAL_HARD), 0);
+            } else {
+                lv_label_set_text(placeholder, "点击右上角刷新扫描周围设备");
+                lv_obj_set_style_text_color(placeholder, lv_color_hex(COLOR_INK_MUTED), 0);
+            }
             lv_obj_center(placeholder);
         } else {
             int row_h = 50;
