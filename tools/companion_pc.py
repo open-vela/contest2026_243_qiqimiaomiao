@@ -23,6 +23,8 @@ import asyncio
 import threading
 import subprocess
 import argparse
+import collections
+import queue
 import requests
 import re
 import numpy as np
@@ -41,108 +43,176 @@ ANKI_CONNECT_URL = "http://127.0.0.1:8765"
 
 
 class AudioListener(threading.Thread):
-    """后台麦克风监听与 Faster-Whisper ASR 语音识别线程"""
+    """后台流式麦克风监听与 Faster-Whisper ASR 实时语音识别线程"""
     def __init__(self, companion):
         super().__init__(daemon=True)
         self.companion = companion
         self.model = None
         self.last_active_time = 0
+        self.asr_queue = queue.Queue()
+        self.worker_thread = None
 
-    def run(self):
-        print("🎙️ [ASR] 正在加载 Faster-Whisper 语音识别模型...")
-        try:
-            self.model = WhisperModel("tiny", device="cpu", compute_type="int8")
-            print("✅ [ASR] Faster-Whisper 模型就绪！开启麦克风监听 (说 '你好 openvela' 唤醒)...")
-        except Exception as e:
-            print(f"❌ [ASR] Faster-Whisper 加载异常: {e}")
-            return
-
-        tmp_rec = "/tmp/vocavibe_rec.wav"
-
+    def _asr_worker(self):
+        """异步 ASR 识别与语义派发工作线程 (与音频流式采集完全解耦，零丢帧)"""
         while self.companion.running:
-            # 半双工机制：若 AI 正在说话，暂停录音避开声音自干扰
-            if self.companion.is_ai_speaking:
-                time.sleep(0.3)
+            try:
+                item = self.asr_queue.get(timeout=0.5)
+            except queue.Empty:
                 continue
 
+            if item is None:
+                break
+
+            audio_float, avg_rms, src_name = item
             try:
-                # 优先选用蓝牙耳机的麦克风输入源，若无则使用系统默认麦克风
-                source = self.companion.get_bluetooth_source()
-                cmd = ["parecord", "--channels=1", "--rate=16000", "--format=s16le"]
-                if source:
-                    cmd.extend(["--device", source])
-                cmd.append(tmp_rec)
-
-                # 录制 2.5 秒音频切片
-                p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                # 监测录音过程，若中途 AI 开始播报则立刻终止当前录音
-                for _ in range(25):
-                    time.sleep(0.1)
-                    if self.companion.is_ai_speaking or not self.companion.running:
-                        break
-                p.terminate()
-                try:
-                    p.wait(timeout=0.5)
-                except Exception:
-                    pass
-
-                if self.companion.is_ai_speaking or not self.companion.running:
-                    continue
-
-                if not os.path.exists(tmp_rec) or os.path.getsize(tmp_rec) < 4000:
-                    continue
-
-                # 读取 PCM 计算有效能量 (RMS)
-                with wave.open(tmp_rec, "rb") as wf:
-                    frames = wf.readframes(wf.getnframes())
-                    if not frames:
-                        continue
-                    audio_data = np.frombuffer(frames, dtype=np.int16)
-                    rms = np.sqrt(np.mean(audio_data.astype(np.float32)**2))
-
-                # 静音/杂音过滤门限 (蓝牙耳机麦克风正常讲话 RMS 在 35~200 左右)
-                if rms < 30:
-                    continue
-
-                # 执行 Faster-Whisper 转写
-                segments, _ = self.model.transcribe(tmp_rec, language="zh")
+                # 内存直通 Faster-Whisper，无需落地 WAV 文件磁盘 I/O
+                segments, _ = self.model.transcribe(audio_float, language="zh", beam_size=1)
                 text = "".join([s.text for s in segments]).strip()
                 if not text:
                     continue
 
-                src_name = "蓝牙耳机麦克风" if source else "电脑内置麦克风"
-                print(f"🎤 [ASR 捕获语音]: '{text}' (RMS={int(rms)}, 拾音设备={src_name})")
+                print(f"🎤 [ASR 捕获语音]: '{text}' (RMS={int(avg_rms)}, 拾音设备={src_name})")
 
-                # 唤醒词匹配检测 (归一化去除空格标点转小写)
+                # 归一化清洗文本
                 clean_text = re.sub(r"[^\w\u4e00-\u9fa5]", "", text).lower()
-                wake_keywords = ["你好openvela", "openvela", "你好小智", "小智", "随声记", "你好"]
-                is_wake = any(k in clean_text for k in wake_keywords)
 
+                # 唤醒词与卡片指令关键词库
+                wake_keywords = [
+                    "你好openvela", "openvela", "你好小智", "小智你好",
+                    "小智助教", "小智", "随声记", "你好", "open vela"
+                ]
+                card_keywords = [
+                    "翻转", "背面", "答案", "看释义", "重来", "忘记", "不会",
+                    "没记住", "困难", "模糊", "有点难", "良好", "认识", "记住",
+                    "记住了", "简单", "容易", "掌握", "太简单", "下一张", "下一个", "继续"
+                ]
+
+                is_wake = any(k in clean_text for k in wake_keywords)
+                is_card_cmd = any(k in clean_text for k in card_keywords)
                 now = time.time()
+
                 if is_wake:
                     print(f"🔔 [语音唤醒成功]: '{text}'")
                     self.last_active_time = now
-                    query = text
-                    for k in ["你好 openvela", "你好openvela", "你好 open vela", "你好open vela", "openvela", "OpenVela", "你好", "小智"]:
-                        query = query.replace(k, "")
-                    query = query.strip(" ，,。！!？?")
-
-                    if query:
-                        # 提问内容送入板端并触发大模型
-                        self.companion.send_to_board({"type": "asr_result", "text": text})
-                    else:
-                        # 仅唤醒，亲切应答
-                        self.companion.send_to_board({"type": "asr_result", "text": "你好 openvela"})
-                        self.companion.play_tts_to_headset("你好呀！我是小智助教，有什么我可以帮你的吗？")
+                    # 派发唤醒与提问至板端
+                    self.companion.send_to_board({"type": "asr_result", "text": text})
+                elif is_card_cmd:
+                    print(f"🎴 [卡片语音指令]: '{text}'")
+                    self.companion.send_to_board({"type": "asr_result", "text": text})
                 elif now - self.last_active_time < 15.0:
-                    # 处于 15 秒多轮对话活跃期
                     print(f"💬 [连续对话中]: '{text}'")
                     self.last_active_time = now
                     self.companion.send_to_board({"type": "asr_result", "text": text})
                 else:
                     print(f"💤 [未唤醒已过滤]: '{text}' (请说 '你好 openvela' 唤醒)")
             except Exception as e:
+                print(f"⚠️ [ASR 转写异常]: {e}")
+            finally:
+                self.asr_queue.task_done()
+
+    def run(self):
+        print("🎙️ [ASR] 正在加载 Faster-Whisper 语音识别模型...")
+        try:
+            self.model = WhisperModel("tiny", device="cpu", compute_type="int8")
+            print("✅ [ASR] Faster-Whisper 模型就绪！开启流式无缝麦克风监听 (说 '你好 openvela' 唤醒)...")
+        except Exception as e:
+            print(f"❌ [ASR] Faster-Whisper 加载异常: {e}")
+            return
+
+        # 启动解耦的 ASR 处理工作线程
+        self.worker_thread = threading.Thread(target=self._asr_worker, daemon=True)
+        self.worker_thread.start()
+
+        # 预录音环形缓冲区 (0.8 秒 = 8 个 100ms 切片)，保留语音起始辅音
+        pre_speech = collections.deque(maxlen=8)
+        in_speech = False
+        speech_chunks = []
+        silence_count = 0
+        baseline_rms = 21.0
+
+        proc = None
+        current_source = None
+
+        while self.companion.running:
+            try:
+                target_source = self.companion.get_bluetooth_source()
+                if proc is None or proc.poll() is not None or target_source != current_source:
+                    if proc and proc.poll() is None:
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=0.5)
+                        except Exception:
+                            pass
+                    current_source = target_source
+                    src_name = "蓝牙耳机麦克风" if current_source else "电脑内置麦克风"
+                    cmd = ["parecord", "--channels=1", "--rate=16000", "--format=s16le", "--raw"]
+                    if current_source:
+                        cmd.extend(["--device", current_source])
+                    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                    print(f"🎙️ [音频流采集] 启动流式录音管道: {src_name} ({current_source or '默认设备'})")
+                    pre_speech.clear()
+                    in_speech = False
+                    speech_chunks = []
+                    silence_count = 0
+
+                # 每次精准读取 100ms PCM 块 (16000 * 1 * 2 * 0.1 = 3200 bytes)
+                raw_chunk = proc.stdout.read(3200)
+                if len(raw_chunk) < 3200:
+                    time.sleep(0.1)
+                    continue
+
+                # 半双工保护：AI 播报期间持续清空管道缓存，重置 VAD，杜绝自言自语
+                if self.companion.is_ai_speaking:
+                    if in_speech:
+                        in_speech = False
+                        speech_chunks = []
+                        silence_count = 0
+                    pre_speech.clear()
+                    continue
+
+                # 计算当前 100ms 音频能量 (RMS)
+                chunk_i16 = np.frombuffer(raw_chunk, dtype=np.int16)
+                chunk_rms = float(np.sqrt(np.mean(chunk_i16.astype(np.float32)**2)))
+
+                # 动态自适应 VAD 触发阈值 (蓝牙耳机底噪 ~20.5，人声讲话 ~26-50+)
+                vad_thresh = max(25.0, baseline_rms + 5.0)
+
+                if not in_speech:
+                    if chunk_rms >= vad_thresh:
+                        in_speech = True
+                        speech_chunks = list(pre_speech) + [raw_chunk]
+                        silence_count = 0
+                    else:
+                        # 动态平滑跟踪环境底噪
+                        baseline_rms = baseline_rms * 0.95 + chunk_rms * 0.05
+                        pre_speech.append(raw_chunk)
+                else:
+                    speech_chunks.append(raw_chunk)
+                    if chunk_rms < vad_thresh:
+                        silence_count += 1
+                    else:
+                        silence_count = 0
+
+                    # 判定语音结束：静音持续 500ms (5 个 chunk) 或单次讲话达到 8 秒上限
+                    if silence_count >= 5 or len(speech_chunks) >= 80:
+                        # 过滤低于 0.8 秒的杂音或短爆破音
+                        if len(speech_chunks) >= 8:
+                            all_bytes = b"".join(speech_chunks)
+                            arr_i16 = np.frombuffer(all_bytes, dtype=np.int16)
+                            audio_f32 = arr_i16.astype(np.float32) / 32768.0
+                            avg_rms = float(np.sqrt(np.mean(arr_i16.astype(np.float32)**2)))
+                            src_name = "蓝牙耳机麦克风" if current_source else "电脑内置麦克风"
+                            self.asr_queue.put((audio_f32, avg_rms, src_name))
+
+                        in_speech = False
+                        speech_chunks = []
+                        silence_count = 0
+                        pre_speech.clear()
+            except Exception as e:
                 time.sleep(0.5)
+
+        if proc and proc.poll() is None:
+            proc.terminate()
 
 
 class VocaVibeCompanion:
