@@ -15,13 +15,18 @@
 extern "C" {
 #endif
 
-/* UI 事件回调函数指针 */
+typedef enum {
+    VOCAVIBE_AUDIO_MODE_HEADSET = 0,
+    VOCAVIBE_AUDIO_MODE_SPEAKER = 1
+} vocavibe_audio_mode_t;
+
 typedef void (*vocavibe_ui_card_answer_cb_t)(anki_rating_t rating);
 typedef void (*vocavibe_ui_ai_query_cb_t)(const char *query);
 typedef void (*vocavibe_ui_sync_cb_t)(void);
 typedef void (*vocavibe_ui_bt_scan_cb_t)(void);
 typedef void (*vocavibe_ui_bt_connect_cb_t)(const char *mac);
 typedef void (*vocavibe_ui_net_connect_cb_t)(void);
+typedef void (*vocavibe_ui_audio_mode_cb_t)(vocavibe_audio_mode_t mode);
 
 typedef struct {
     vocavibe_ui_card_answer_cb_t on_card_answer;
@@ -30,6 +35,7 @@ typedef struct {
     vocavibe_ui_bt_scan_cb_t     on_bt_scan;
     vocavibe_ui_bt_connect_cb_t  on_bt_connect;
     vocavibe_ui_net_connect_cb_t on_net_connect;
+    vocavibe_ui_audio_mode_cb_t  on_audio_mode;
 } vocavibe_ui_callbacks_t;
 
 /* AI 助教动效状态枚举 */
@@ -68,6 +74,9 @@ void vocavibe_ui_clear_bt_devices(void);
 void vocavibe_ui_update_device_status(const char *mac, const char *name, bool connected);
 void vocavibe_ui_set_bt_status(const char *status_str, bool connected);
 void vocavibe_ui_set_sync_status(const char *status_str);
+void vocavibe_ui_show_audio_modal(void);
+void vocavibe_ui_set_audio_mode(vocavibe_audio_mode_t mode);
+vocavibe_audio_mode_t vocavibe_ui_get_audio_mode(void);
 
 #ifdef __cplusplus
 }

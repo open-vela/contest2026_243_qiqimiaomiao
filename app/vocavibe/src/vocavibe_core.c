@@ -491,6 +491,11 @@ int vocavibe_core_request_net_connect(void)
     return vocavibe_core_send_json("net_connect", NULL);
 }
 
+int vocavibe_core_request_audio_mode(int mode)
+{
+    return vocavibe_core_send_json("audio_mode", (mode == 1) ? "speaker" : "headset");
+}
+
 /* 接收并处理来自电脑中转网关/耳机的协议报文 */
 void vocavibe_core_handle_line(const char *line)
 {
@@ -612,6 +617,7 @@ void vocavibe_core_handle_line(const char *line)
         char status_buf[64];
         if (conn) {
             snprintf(status_buf, sizeof(status_buf), "已连接: %s", name[0] ? name : "蓝牙设备");
+            vocavibe_ui_show_audio_modal();
         } else {
             snprintf(status_buf, sizeof(status_buf), "未连接蓝牙设备");
         }
