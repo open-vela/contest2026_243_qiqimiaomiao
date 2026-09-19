@@ -401,18 +401,26 @@ static void create_page_1_anki_study(lv_obj_t *parent)
     lv_obj_set_style_bg_color(parent, lv_color_hex(COLOR_PARCHMENT_BG), 0);
     lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* 顶部进度指示栏 */
-    s_p1_progress_lbl = lv_label_create(parent);
-    apply_cjk_font(s_p1_progress_lbl);
-    lv_label_set_text(s_p1_progress_lbl, "Anki 卡片 (1 / 20)");
-    lv_obj_set_style_text_color(s_p1_progress_lbl, lv_color_hex(COLOR_INK_MAIN), 0);
-    lv_obj_align(s_p1_progress_lbl, LV_ALIGN_TOP_LEFT, 20, 10);
+    /* 顶部安全指示栏：宽 336px 居中避让 AMOLED 屏幕左右大圆角 */
+    lv_obj_t *top_bar = lv_obj_create(parent);
+    lv_obj_set_size(top_bar, SAFE_CARD_W, 28);
+    lv_obj_align(top_bar, LV_ALIGN_TOP_MID, 0, 8);
+    lv_obj_set_style_bg_opa(top_bar, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(top_bar, 0, 0);
+    lv_obj_set_style_pad_all(top_bar, 0, 0);
+    lv_obj_clear_flag(top_bar, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* 朗读发音小印章按钮 */
-    lv_obj_t *btn_speak = lv_button_create(parent);
+    s_p1_progress_lbl = lv_label_create(top_bar);
+    apply_cjk_font(s_p1_progress_lbl);
+    lv_label_set_text(s_p1_progress_lbl, "卡片进度 (1 / 20)");
+    lv_obj_set_style_text_color(s_p1_progress_lbl, lv_color_hex(COLOR_INK_MAIN), 0);
+    lv_obj_align(s_p1_progress_lbl, LV_ALIGN_LEFT_MID, 8, 0);
+
+    /* 朗读发音小印章按钮 (右侧内缩 8px 避让物理右上圆角) */
+    lv_obj_t *btn_speak = lv_button_create(top_bar);
     lv_obj_set_ext_click_area(btn_speak, 12);
-    lv_obj_set_size(btn_speak, 85, 28);
-    lv_obj_align(btn_speak, LV_ALIGN_TOP_RIGHT, -20, 6);
+    lv_obj_set_size(btn_speak, 68, 26);
+    lv_obj_align(btn_speak, LV_ALIGN_RIGHT_MID, -8, 0);
     lv_obj_set_style_bg_color(btn_speak, lv_color_hex(COLOR_PAPER_CARD), 0);
     lv_obj_set_style_border_color(btn_speak, lv_color_hex(COLOR_PAPER_BORDER), 0);
     lv_obj_set_style_border_width(btn_speak, 1, 0);
@@ -423,7 +431,7 @@ static void create_page_1_anki_study(lv_obj_t *parent)
 
     lv_obj_t *spk_lbl = lv_label_create(btn_speak);
     apply_cjk_font(spk_lbl);
-    lv_label_set_text(spk_lbl, "🔊 发音");
+    lv_label_set_text(spk_lbl, "发音");
     lv_obj_set_style_text_color(spk_lbl, lv_color_hex(COLOR_INK_MAIN), 0);
     lv_obj_center(spk_lbl);
 
@@ -998,7 +1006,7 @@ void vocavibe_ui_poll(void)
         }
 
         char prog_buf[48];
-        snprintf(prog_buf, sizeof(prog_buf), "Anki 卡片 (%d / %d)", s_cur_idx, s_total_cnt);
+        snprintf(prog_buf, sizeof(prog_buf), "卡片进度 (%d / %d)", s_cur_idx, s_total_cnt);
         if (s_p1_progress_lbl) lv_label_set_text(s_p1_progress_lbl, prog_buf);
 
         s_card_back_visible = s_card_req_back;
