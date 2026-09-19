@@ -65,6 +65,7 @@ void vocavibe_ui_set_ai_chat(const char *user_query, const char *ai_reply);
 void vocavibe_ui_set_net_status(bool connected, const char *status_str);
 void vocavibe_ui_add_bt_device(const char *name, const char *mac, const char *status_str, int rssi, bool is_connected);
 void vocavibe_ui_clear_bt_devices(void);
+void vocavibe_ui_update_device_status(const char *mac, const char *name, bool connected);
 void vocavibe_ui_set_bt_status(const char *status_str, bool connected);
 void vocavibe_ui_set_sync_status(const char *status_str);
 
