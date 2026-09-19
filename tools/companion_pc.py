@@ -148,10 +148,25 @@ class VocaVibeCompanion:
         self.audio_mode = "headset"  # "headset" (蓝牙耳机) 或 "speaker" (板载喇叭)
         self.is_ai_speaking = False  # 半双工状态锁
 
+    def _open_port(self, port_dev):
+        s = serial.Serial()
+        s.port = port_dev
+        s.baudrate = self.baudrate
+        s.timeout = 0.1
+        s.rts = False
+        s.dtr = False
+        s.open()
+        try:
+            s.rts = False
+            s.dtr = False
+        except Exception:
+            pass
+        return s
+
     def connect_serial(self):
         try:
-            self.ser = serial.Serial(self.port, self.baudrate, timeout=0.1)
-            print(f"✅ 成功连接开发板串口: {self.port} @ {self.baudrate} baud")
+            self.ser = self._open_port(self.port)
+            print(f"✅ 成功连接开发板串口: {self.port} @ {self.baudrate} baud (RTS/DTR 已保持低电平，避免触发硬件复位)")
             return True
         except Exception as e:
             print(f"⚠️ 无法直接打开 {self.port}: {e}")
@@ -159,9 +174,9 @@ class VocaVibeCompanion:
             for p in ports:
                 if "ACM" in p.device or "USB" in p.device:
                     try:
-                        self.ser = serial.Serial(p.device, self.baudrate, timeout=0.1)
+                        self.ser = self._open_port(p.device)
                         self.port = p.device
-                        print(f"✅ 自动重定向并连接到可用串口: {self.port}")
+                        print(f"✅ 自动重定向并连接到可用串口: {self.port} (RTS/DTR 已保持低电平，避免触发硬件复位)")
                         return True
                     except Exception:
                         pass
@@ -514,6 +529,9 @@ class VocaVibeCompanion:
 
     def run(self, daemon_mode=False):
         self.connect_serial()
+        if self.ser and self.ser.is_open:
+            time.sleep(0.1)
+            self.send_to_board({"type": "net_status", "connected": True, "ip": "127.0.0.1"})
         t_serial = threading.Thread(target=self.serial_listen_loop, daemon=True)
         t_serial.start()
         t_bt = threading.Thread(target=self.bluetooth_monitor_loop, daemon=True)

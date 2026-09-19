@@ -153,6 +153,7 @@ static volatile int s_switch_to_page = -1;
 static int s_current_page = 0;
 static int s_net_conn_timeout_ms = 0;
 static int s_bt_scan_timeout_ms = 0;
+static volatile bool s_audio_modal_req = false;
 
 int vocavibe_ui_get_current_page(void)
 {
@@ -162,6 +163,7 @@ int vocavibe_ui_get_current_page(void)
 /* -------------------------------------------------------------------------
  * 事件回调函数
  * ------------------------------------------------------------------------- */
+static void create_audio_modal(void);
 static void update_nav_buttons_style(int active_idx)
 {
     s_current_page = active_idx;
@@ -791,7 +793,6 @@ static void create_page_3_settings(lv_obj_t *parent)
     lv_obj_set_style_radius(s_btn_net_conn, 6, 0);
     lv_obj_clear_flag(s_btn_net_conn, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(s_btn_net_conn, on_net_connect_clicked, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(s_btn_net_conn, on_net_connect_clicked, LV_EVENT_SHORT_CLICKED, NULL);
 
     s_lbl_net_conn = lv_label_create(s_btn_net_conn);
     apply_cjk_font(s_lbl_net_conn);
@@ -1247,27 +1248,36 @@ void vocavibe_ui_poll(void)
 
     /* 8. 连接握手与扫描超时倒计时检测 (防虚假连接与假死) */
     if (s_net_conn_timeout_ms > 0) {
-        s_net_conn_timeout_ms -= 5;
-        if (s_net_conn_timeout_ms <= 0 && !s_net_connected) {
+        if (s_net_conn_timeout_ms <= 8) {
             s_net_conn_timeout_ms = 0;
-            if (s_net_status_lbl) {
-                lv_label_set_text(s_net_status_lbl, "网络代理: 未连接 (请启动PC伴侣)");
-                lv_obj_set_style_text_color(s_net_status_lbl, lv_color_hex(COLOR_INK_MUTED), 0);
+            if (!s_net_connected) {
+                if (s_net_status_lbl) {
+                    lv_label_set_text(s_net_status_lbl, "网络代理: 未连接 (请启动PC伴侣)");
+                    lv_obj_set_style_text_color(s_net_status_lbl, lv_color_hex(COLOR_INK_MUTED), 0);
+                }
+                if (s_lbl_net_conn) {
+                    lv_label_set_text(s_lbl_net_conn, "连接");
+                }
+                if (s_btn_net_conn) {
+                    lv_obj_set_style_bg_color(s_btn_net_conn, lv_color_hex(COLOR_BTN_SLATE), 0);
+                }
+            } else {
+                if (s_lbl_net_conn) {
+                    lv_label_set_text(s_lbl_net_conn, "已连接");
+                }
+                if (s_btn_net_conn) {
+                    lv_obj_set_style_bg_color(s_btn_net_conn, lv_color_hex(COLOR_SEAL_GOOD), 0);
+                }
             }
-            if (s_lbl_net_conn) {
-                lv_label_set_text(s_lbl_net_conn, "连接");
-            }
-            if (s_btn_net_conn) {
-                lv_obj_set_style_bg_color(s_btn_net_conn, lv_color_hex(COLOR_BTN_SLATE), 0);
-            }
+        } else {
+            s_net_conn_timeout_ms -= 8;
         }
     }
 
     if (s_bt_scan_timeout_ms > 0) {
-        s_bt_scan_timeout_ms -= 5;
-        if (s_bt_scan_timeout_ms <= 0 && s_bt_entry_count == 0) {
+        if (s_bt_scan_timeout_ms <= 8) {
             s_bt_scan_timeout_ms = 0;
-            if (s_bt_list) {
+            if (s_bt_entry_count == 0 && s_bt_list) {
                 lv_obj_clean(s_bt_list);
                 lv_obj_t *placeholder = lv_label_create(s_bt_list);
                 apply_cjk_font(placeholder);
@@ -1275,10 +1285,18 @@ void vocavibe_ui_poll(void)
                 lv_obj_set_style_text_color(placeholder, lv_color_hex(COLOR_INK_MUTED), 0);
                 lv_obj_center(placeholder);
             }
+        } else {
+            s_bt_scan_timeout_ms -= 8;
         }
     }
 
-    /* 9. 处理 LVGL 定时器和触控事件 (动态极速调度，跑满硬件刷屏极限) */
+    /* 9. 异步音频设备选择弹窗安全调度 (在主线程创建 LVGL 视图，防止多线程死锁) */
+    if (s_audio_modal_req) {
+        s_audio_modal_req = false;
+        create_audio_modal();
+    }
+
+    /* 10. 处理 LVGL 定时器和触控事件 (动态极速调度，跑满硬件刷屏极限) */
     uint32_t idle = lv_timer_handler();
     /* 当正在切页滑动或手势拖动时，idle 为 0，仅微延时 1ms 让出总线并跑满 60FPS 极速渲染；
      * 静态无操作时适度休眠降低功耗与总线发热 */
@@ -1442,6 +1460,7 @@ void vocavibe_ui_set_sync_status(const char *status_str)
 void vocavibe_ui_set_net_status(bool connected, const char *status_str)
 {
     s_net_connected = connected;
+    s_net_conn_timeout_ms = 0; /* 收到连接响应，取消超时重试倒计时 */
     if (status_str) {
         strncpy(s_net_status_buf, status_str, sizeof(s_net_status_buf) - 1);
         s_net_status_buf[sizeof(s_net_status_buf) - 1] = '\0';
@@ -1467,7 +1486,7 @@ vocavibe_audio_mode_t vocavibe_ui_get_audio_mode(void)
     return s_audio_mode;
 }
 
-void vocavibe_ui_show_audio_modal(void)
+static void create_audio_modal(void)
 {
     if (s_audio_modal) {
         return;
@@ -1516,7 +1535,6 @@ void vocavibe_ui_show_audio_modal(void)
     lv_obj_set_style_radius(btn_headset, 8, 0);
     lv_obj_clear_flag(btn_headset, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(btn_headset, on_modal_headset_clicked, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(btn_headset, on_modal_headset_clicked, LV_EVENT_SHORT_CLICKED, NULL);
 
     lv_obj_t *lbl_hs = lv_label_create(btn_headset);
     apply_cjk_font(lbl_hs);
@@ -1533,11 +1551,15 @@ void vocavibe_ui_show_audio_modal(void)
     lv_obj_set_style_radius(btn_spk, 8, 0);
     lv_obj_clear_flag(btn_spk, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(btn_spk, on_modal_speaker_clicked, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(btn_spk, on_modal_speaker_clicked, LV_EVENT_SHORT_CLICKED, NULL);
 
     lv_obj_t *lbl_spk = lv_label_create(btn_spk);
     apply_cjk_font(lbl_spk);
     lv_label_set_text(lbl_spk, "板载喇叭");
     lv_obj_set_style_text_color(lbl_spk, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(lbl_spk);
+}
+
+void vocavibe_ui_show_audio_modal(void)
+{
+    s_audio_modal_req = true;
 }
