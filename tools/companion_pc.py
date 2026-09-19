@@ -351,7 +351,8 @@ class VocaVibeCompanion:
                         "example": f"This is an example sentence for {word}."
                     })
                 else:
-                    print(f"未知指令 '{cmd}'，支持 asr / mimo / sync / scan / card_add / quit")
+                    print(f"📡 [转发至板端] {cmd}")
+                    self.ser.write((cmd + "\n").encode())
             except (KeyboardInterrupt, EOFError):
                 self.running = False
                 break
