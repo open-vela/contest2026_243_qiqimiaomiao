@@ -141,6 +141,7 @@ int main(int argc, char *argv[])
         .on_bt_scan     = (vocavibe_ui_bt_scan_cb_t)vocavibe_core_request_bt_scan,
         .on_bt_connect  = (vocavibe_ui_bt_connect_cb_t)vocavibe_core_request_bt_connect,
         .on_net_connect = (vocavibe_ui_net_connect_cb_t)vocavibe_core_request_net_connect,
+        .on_audio_mode  = (vocavibe_ui_audio_mode_cb_t)vocavibe_core_request_audio_mode,
     };
 
     /* 3. 在主线程中初始化 UI 与触摸屏驱动 (保证 TLS 隔离环境一致) */

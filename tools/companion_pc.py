@@ -9,18 +9,27 @@ VocaVibe (随声记) PC 端伴侣与分布式 AI 网关 (Companion Gateway)
 2. Xiaomi MiMo 2.5 大模型流式对话转发
 3. AnkiConnect (http://127.0.0.1:8765) 卡组双向同步与 SM-2 进度回写
 4. 蓝牙耳机代理联动：板端遥控扫描周围蓝牙耳机，电脑代理连接并将 TTS 音频中转输出
-5. 语音输入拾音与 ASR 模拟/实时识别
+5. 小智同款台湾腔 TTS（Edge-TTS zh-TW-HsiaoChenNeural）与蓝牙耳机/板载喇叭双模分流
+6. 耳机麦克风拾音、官方唤醒词（「你好 openvela」）与 Faster-Whisper 本地 ASR 识别
+7. 半双工免打断机制：AI 播报期间自动暂停麦克风监听，杜绝自言自语
 """
 
 import sys
+import os
 import time
 import json
+import wave
+import asyncio
 import threading
 import subprocess
 import argparse
 import requests
 import serial
 import serial.tools.list_ports
+import av
+import edge_tts
+from faster_whisper import WhisperModel
+import numpy as np
 
 # Xiaomi MiMo 2.5 云端大模型配置
 MIMO_API_KEY = "tp-c2rn3aytnmxcfash8yv6xenmzntatkev0btwhp06540wnhz3"
@@ -29,6 +38,106 @@ MIMO_URL = "https://token-plan-cn.xiaomimimo.com/v1/chat/completions"
 # 本地 AnkiConnect API 地址
 ANKI_CONNECT_URL = "http://127.0.0.1:8765"
 
+
+class AudioListener(threading.Thread):
+    """后台麦克风监听与 Faster-Whisper ASR 语音识别线程"""
+    def __init__(self, companion):
+        super().__init__(daemon=True)
+        self.companion = companion
+        self.model = None
+        self.last_active_time = 0.0
+
+    def run(self):
+        print("🎙️ [ASR] 正在加载 Faster-Whisper 语音识别模型...")
+        try:
+            self.model = WhisperModel("tiny", device="cpu", compute_type="int8")
+            print("✅ [ASR] Faster-Whisper 模型就绪！开启麦克风监听 (说 '你好 openvela' 唤醒)...")
+        except Exception as e:
+            print(f"❌ [ASR] Faster-Whisper 加载异常: {e}")
+            return
+
+        tmp_rec = "/tmp/vocavibe_rec.wav"
+
+        while self.companion.running:
+            # 半双工机制：若 AI 正在说话，暂停录音避开声音自干扰
+            if self.companion.is_ai_speaking:
+                time.sleep(0.3)
+                continue
+
+            try:
+                # 录制 2.5 秒音频切片
+                p = subprocess.Popen(
+                    ["parecord", "--channels=1", "--rate=16000", "--format=s16le", tmp_rec],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+                # 监测录音过程，若中途 AI 开始播报则立刻终止当前录音
+                for _ in range(25):
+                    time.sleep(0.1)
+                    if self.companion.is_ai_speaking or not self.companion.running:
+                        break
+                p.terminate()
+                try:
+                    p.wait(timeout=0.5)
+                except Exception:
+                    pass
+
+                if self.companion.is_ai_speaking or not self.companion.running:
+                    continue
+
+                if not os.path.exists(tmp_rec) or os.path.getsize(tmp_rec) < 4000:
+                    continue
+
+                # 读取 PCM 计算有效能量 (RMS)
+                with wave.open(tmp_rec, "rb") as wf:
+                    frames = wf.readframes(wf.getnframes())
+                    if not frames:
+                        continue
+                    audio_data = np.frombuffer(frames, dtype=np.int16)
+                    rms = np.sqrt(np.mean(audio_data.astype(np.float32)**2))
+
+                # 静音/杂音过滤门限
+                if rms < 350:
+                    continue
+
+                # 执行 Faster-Whisper 转写
+                segments, _ = self.model.transcribe(tmp_rec, language="zh")
+                text = "".join([s.text for s in segments]).strip()
+                if not text:
+                    continue
+
+                print(f"🎤 [ASR 捕获语音]: '{text}' (RMS={int(rms)})")
+
+                # 唤醒词匹配检测
+                wake_keywords = ["你好 openvela", "你好openvela", "openvela", "OpenVela", "你好"]
+                is_wake = any(k in text for k in wake_keywords)
+
+                now = time.time()
+                if is_wake:
+                    print(f"🔔 [语音唤醒成功]: '{text}'")
+                    self.last_active_time = now
+                    query = text
+                    for k in wake_keywords:
+                        query = query.replace(k, "")
+                    query = query.strip(" ，,。！!？?")
+
+                    if query:
+                        # 提问内容送入板端并触发大模型
+                        self.companion.send_to_board({"type": "asr_result", "text": text})
+                    else:
+                        # 仅唤醒，亲切应答
+                        self.companion.send_to_board({"type": "asr_result", "text": "你好 openvela"})
+                        self.companion.play_tts_to_headset("你好呀！我是小智助教，有什么我可以帮你的吗？")
+                elif now - self.last_active_time < 15.0:
+                    # 处于 15 秒多轮对话活跃期
+                    print(f"💬 [连续对话中]: '{text}'")
+                    self.last_active_time = now
+                    self.companion.send_to_board({"type": "asr_result", "text": text})
+                else:
+                    print(f"💤 [未唤醒已过滤]: '{text}' (请说 '你好 openvela' 唤醒)")
+            except Exception as e:
+                time.sleep(0.5)
+
+
 class VocaVibeCompanion:
     def __init__(self, port="/dev/ttyACM0", baudrate=1000000):
         self.port = port
@@ -36,6 +145,8 @@ class VocaVibeCompanion:
         self.ser = None
         self.running = True
         self.connected_headset = None
+        self.audio_mode = "headset"  # "headset" (蓝牙耳机) 或 "speaker" (板载喇叭)
+        self.is_ai_speaking = False  # 半双工状态锁
 
     def connect_serial(self):
         try:
@@ -44,7 +155,6 @@ class VocaVibeCompanion:
             return True
         except Exception as e:
             print(f"⚠️ 无法直接打开 {self.port}: {e}")
-            # 自动探测可用串口
             ports = list(serial.tools.list_ports.comports())
             for p in ports:
                 if "ACM" in p.device or "USB" in p.device:
@@ -69,6 +179,17 @@ class VocaVibeCompanion:
             except Exception as e:
                 print(f"❌ 串口写入失败: {e}")
         print(f"📤 [发往板端] {jstr}")
+
+    def get_bluetooth_sink(self):
+        """获取当前活跃的蓝牙音频输出设备"""
+        try:
+            res = subprocess.run(["pactl", "list", "sinks", "short"], stdout=subprocess.PIPE, text=True, timeout=2)
+            for line in res.stdout.splitlines():
+                if "bluez_sink" in line:
+                    return line.split()[1]
+        except Exception:
+            pass
+        return None
 
     def call_mimo_llm(self, user_query: str):
         """调用 Xiaomi MiMo 2.5 大模型并向开发板流式推送结果"""
@@ -96,12 +217,9 @@ class VocaVibeCompanion:
             if resp.status_code == 200:
                 res_json = resp.json()
                 ai_text = res_json['choices'][0]['message']['content'].strip()
-                # 过滤可能存在的多余空行
                 ai_text = ' '.join(ai_text.split())
                 print(f"✨ [MiMo 2.5 答复]: {ai_text}")
-                # 推送至板端屏幕
                 self.send_to_board({"type": "ai_response", "user": user_query, "ai": ai_text})
-                # 触发语音播报中转至蓝牙耳机
                 self.play_tts_to_headset(ai_text)
             else:
                 fallback = f"MiMo 接口返回错误: {resp.status_code}"
@@ -113,16 +231,47 @@ class VocaVibeCompanion:
             self.send_to_board({"type": "ai_response", "user": user_query, "ai": fallback})
 
     def play_tts_to_headset(self, text: str):
-        """通过电脑音频中转至蓝牙耳机"""
-        print(f"🔊 [TTS 语音中转] 正在输出音频至当前耳机: '{text[:40]}...'")
+        """小智同款台湾腔 TTS 语音合成与分流播报（半双工免打断）"""
+        if not text:
+            return
+        print(f"🔊 [小智台湾腔 TTS] 正在合成并播报: '{text[:40]}...'")
+        self.is_ai_speaking = True  # 半双工锁开启
         self.send_to_board({"type": "ai_state", "state": "speaking"})
+
+        tmp_mp3 = "/tmp/vocavibe_tts.mp3"
+        tmp_wav = "/tmp/vocavibe_tts.wav"
+
         try:
-            # 优先使用系统语音播放 (Linux spd-say 或 espeak)
-            subprocess.run(["spd-say", "-t", "female1", text[:80]], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            pass
-        time.sleep(1.5)
-        self.send_to_board({"type": "ai_state", "state": "idle"})
+            # 1. 异步生成 Edge-TTS 台湾女声
+            async def gen_voice():
+                comm = edge_tts.Communicate(text, "zh-TW-HsiaoChenNeural")
+                await comm.save(tmp_mp3)
+
+            asyncio.run(gen_voice())
+
+            # 2. PyAV 高速将 MP3 转为 24kHz 单声道 WAV
+            container = av.open(tmp_mp3)
+            stream = container.streams.audio[0]
+            with wave.open(tmp_wav, "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(24000)
+                for frame in container.decode(stream):
+                    wf.writeframes(frame.to_ndarray().tobytes())
+
+            # 3. 根据当前选定的输出模式分流
+            bt_sink = self.get_bluetooth_sink()
+            if self.audio_mode == "headset" and bt_sink:
+                print(f"🎧 [音频输出] 路由至蓝牙耳机 ({bt_sink})")
+                subprocess.run(["paplay", "-d", bt_sink, tmp_wav], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                print(f"🔊 [音频输出] 路由至板载喇叭/扬声器")
+                subprocess.run(["paplay", tmp_wav], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as e:
+            print(f"⚠️ TTS 播放失败: {e}")
+        finally:
+            self.send_to_board({"type": "ai_state", "state": "idle"})
+            self.is_ai_speaking = False  # 半双工锁释放
 
     def sync_from_anki_connect(self):
         """与 AnkiConnect 双向拉取同步卡组"""
@@ -136,7 +285,6 @@ class VocaVibeCompanion:
             if resp.status_code == 200 and resp.json().get("result"):
                 decks = resp.json().get("result", [])
                 print(f"✅ 检测到本地 Anki 词库: {decks}")
-                # 查询卡片
                 q_payload = {"action": "findCards", "version": 6, "params": {"query": "deck:current or deck:default"}}
                 c_resp = requests.post(ANKI_CONNECT_URL, json=q_payload, timeout=2)
                 card_ids = c_resp.json().get("result", [])[:20]
@@ -166,7 +314,6 @@ class VocaVibeCompanion:
         except Exception as e:
             print(f"⚠️ AnkiConnect 未开启或未响应 ({e})，使用官方标准卡组同步。")
 
-        # 兜底：发送标准 20 词示范卡组同步包
         fallback_sync = {
             "type": "sync_deck",
             "cards": [
@@ -182,7 +329,6 @@ class VocaVibeCompanion:
         print("🔍 正在通过电脑蓝牙适配器扫描蓝牙耳机...")
         devices = []
         try:
-            # 运行 bluetoothctl devices 获取已配对/扫描到的音频设备
             res = subprocess.run(["bluetoothctl", "devices"], stdout=subprocess.PIPE, text=True, timeout=3)
             lines = res.stdout.strip().split("\n")
             for line in lines:
@@ -190,7 +336,6 @@ class VocaVibeCompanion:
                 if len(parts) >= 3 and parts[0] == "Device":
                     mac = parts[1]
                     name = parts[2]
-                    # 判断当前是否连接
                     info_res = subprocess.run(["bluetoothctl", "info", mac], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=1)
                     is_conn = "Connected: yes" in info_res.stdout
                     stat = "已连接" if is_conn else ("已断开" if "Paired: yes" in info_res.stdout else "未设置")
@@ -211,7 +356,6 @@ class VocaVibeCompanion:
                 {"name": "HUAWEI M-Pencil 3", "mac": "E4:5F:01:23:45:67", "status": "未设置", "connected": False, "rssi": -75}
             ]
 
-        # 模拟 0.4s 真实扫描延迟
         time.sleep(0.4)
         print(f"🎧 扫描到 {len(devices)} 个可用设备，推送至开发板屏幕列表...")
         self.send_to_board({"type": "bt_scan_result", "devices": devices})
@@ -230,10 +374,9 @@ class VocaVibeCompanion:
             check_res = subprocess.run(["bluetoothctl", "info", mac], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=2)
             is_conn = "Connected: yes" in check_res.stdout
         except Exception:
-            is_conn = True  # 模拟环境连接成功
+            is_conn = True
         
         self.connected_headset = mac
-        # 上报开发板更新 UI 状态
         self.send_to_board({"type": "bt_status", "connected": is_conn, "mac": mac, "name": dev_name})
         print(f"✅ 蓝牙设备代理状态已更新: {dev_name} ({mac}) -> {'已连接' if is_conn else '已断开'}")
 
@@ -256,6 +399,10 @@ class VocaVibeCompanion:
                 elif ptype == "tts_speak":
                     text = pkt.get("data", "")
                     threading.Thread(target=self.play_tts_to_headset, args=(text,), daemon=True).start()
+                elif ptype == "audio_mode":
+                    mode = pkt.get("data", "headset")
+                    self.audio_mode = mode
+                    print(f"🔊 [音频路由] 开发板端已切换音频播放设备: {'板载喇叭' if mode == 'speaker' else '蓝牙耳机'}")
                 elif ptype == "net_connect":
                     print("🤝 [网络握手] 收到开发板网络中转连接请求，正在握手响应...")
                     self.send_to_board({"type": "net_status", "connected": True, "ip": "127.0.0.1"})
@@ -272,7 +419,6 @@ class VocaVibeCompanion:
             except Exception as e:
                 print(f"⚠️ 解析板端 JSON 异常: {e} | 原始: {json_part}")
         else:
-            # 打印板端普通日志
             print(f"📋 [板端日志] {line}")
 
     def serial_listen_loop(self):
@@ -293,7 +439,6 @@ class VocaVibeCompanion:
         last_conn_state = None
         while self.running:
             try:
-                # 检查当前是否有活跃连接的音频设备
                 res = subprocess.run(["bluetoothctl", "info"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=2)
                 connected = "Connected: yes" in res.stdout
                 dev_name = "蓝牙耳机"
@@ -317,10 +462,12 @@ class VocaVibeCompanion:
         print("  🚀 VocaVibe PC 伴侣端已就绪！可用调试指令：")
         print("  1. asr <text>   - 模拟耳机 ASR 拾音，触发板端意图或大模型")
         print("  2. mimo <query> - 直接测试 MiMo 2.5 并推流到板端")
-        print("  3. sync         - 触发 AnkiConnect 同步")
-        print("  4. scan         - 模拟扫描周围蓝牙耳机并上报板端")
-        print("  5. card_add <w> - 动态推送添加新卡片")
-        print("  6. quit         - 退出伴侣程序")
+        print("  3. tts <text>   - 测试小智台湾腔 TTS 播报")
+        print("  4. mode <hs|sp> - 切换音频播放设备 (hs=耳机, sp=喇叭)")
+        print("  5. sync         - 触发 AnkiConnect 同步")
+        print("  6. scan         - 模拟扫描周围蓝牙耳机并上报板端")
+        print("  7. card_add <w> - 动态推送添加新卡片")
+        print("  8. quit         - 退出伴侣程序")
         print("============================================================\n")
 
         while self.running:
@@ -334,6 +481,13 @@ class VocaVibeCompanion:
                 elif cmd.startswith("asr "):
                     text = cmd[4:].strip()
                     self.send_to_board({"type": "asr_result", "text": text})
+                elif cmd.startswith("tts "):
+                    text = cmd[4:].strip()
+                    threading.Thread(target=self.play_tts_to_headset, args=(text,), daemon=True).start()
+                elif cmd.startswith("mode "):
+                    arg = cmd[5:].strip()
+                    self.audio_mode = "speaker" if arg in ["sp", "speaker"] else "headset"
+                    print(f"🔊 音频播放设备已切换为: {'板载喇叭' if self.audio_mode == 'speaker' else '蓝牙耳机'}")
                 elif cmd.startswith("mimo "):
                     q = cmd[5:].strip()
                     threading.Thread(target=self.call_mimo_llm, args=(q,), daemon=True).start()
@@ -352,7 +506,8 @@ class VocaVibeCompanion:
                     })
                 else:
                     print(f"📡 [转发至板端] {cmd}")
-                    self.ser.write((cmd + "\n").encode())
+                    if self.ser and self.ser.is_open:
+                        self.ser.write((cmd + "\n").encode())
             except (KeyboardInterrupt, EOFError):
                 self.running = False
                 break
@@ -363,6 +518,9 @@ class VocaVibeCompanion:
         t_serial.start()
         t_bt = threading.Thread(target=self.bluetooth_monitor_loop, daemon=True)
         t_bt.start()
+        t_audio = AudioListener(self)
+        t_audio.start()
+
         if daemon_mode:
             print("🌟 VocaVibe PC 伴侣端已进入后台监听常驻模式 (按 Ctrl+C 退出)...")
             try:
@@ -372,9 +530,11 @@ class VocaVibeCompanion:
                 self.running = False
         else:
             self.interactive_console()
+
         if self.ser and self.ser.is_open:
             self.ser.close()
         print("👋 VocaVibe 伴侣网关已安全退出。")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="VocaVibe PC Companion Gateway")

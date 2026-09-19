@@ -107,6 +107,10 @@ static lv_obj_t *s_lbl_net_conn = NULL;
 static lv_obj_t *s_sync_status_lbl = NULL;
 static lv_obj_t *s_bt_status_lbl = NULL;
 static lv_obj_t *s_bt_list = NULL;
+static vocavibe_audio_mode_t s_audio_mode = VOCAVIBE_AUDIO_MODE_HEADSET;
+static lv_obj_t *s_audio_modal = NULL;
+static lv_obj_t *s_lbl_audio_mode = NULL;
+static lv_obj_t *s_btn_audio_mode = NULL;
 
 /* 线程安全数据中转缓存 */
 static int s_stat_total = 20, s_stat_due = 20, s_stat_reviewed = 0;
@@ -322,6 +326,37 @@ static void on_bt_dev_item_clicked(lv_event_t *e)
     if (s_cbs.on_bt_connect && mac) {
         s_cbs.on_bt_connect(mac);
     }
+}
+
+static void on_modal_headset_clicked(lv_event_t *e)
+{
+    (void)e;
+    printf("[VocaVibe UI] 弹窗选择音频输出: 蓝牙耳机\n");
+    vocavibe_ui_set_audio_mode(VOCAVIBE_AUDIO_MODE_HEADSET);
+    if (s_audio_modal) {
+        lv_obj_delete(s_audio_modal);
+        s_audio_modal = NULL;
+    }
+}
+
+static void on_modal_speaker_clicked(lv_event_t *e)
+{
+    (void)e;
+    printf("[VocaVibe UI] 弹窗选择音频输出: 板载喇叭\n");
+    vocavibe_ui_set_audio_mode(VOCAVIBE_AUDIO_MODE_SPEAKER);
+    if (s_audio_modal) {
+        lv_obj_delete(s_audio_modal);
+        s_audio_modal = NULL;
+    }
+}
+
+static void on_audio_mode_toggle_clicked(lv_event_t *e)
+{
+    (void)e;
+    vocavibe_audio_mode_t next_mode = (s_audio_mode == VOCAVIBE_AUDIO_MODE_HEADSET) ?
+                                      VOCAVIBE_AUDIO_MODE_SPEAKER : VOCAVIBE_AUDIO_MODE_HEADSET;
+    printf("[VocaVibe UI] 设置页切换音频输出: %s\n", (next_mode == VOCAVIBE_AUDIO_MODE_SPEAKER) ? "板载喇叭" : "蓝牙耳机");
+    vocavibe_ui_set_audio_mode(next_mode);
 }
 
 /* -------------------------------------------------------------------------
@@ -825,7 +860,7 @@ static void create_page_3_settings(lv_obj_t *parent)
 
     lv_obj_t *btn_refresh = lv_button_create(bt_card);
     lv_obj_set_ext_click_area(btn_refresh, 12);
-    lv_obj_set_size(btn_refresh, 72, 28);
+    lv_obj_set_size(btn_refresh, 64, 28);
     lv_obj_align(btn_refresh, LV_ALIGN_TOP_RIGHT, -14, 8);
     lv_obj_set_style_bg_color(btn_refresh, lv_color_hex(COLOR_BTN_SLATE), 0);
     lv_obj_set_style_radius(btn_refresh, 6, 0);
@@ -837,6 +872,23 @@ static void create_page_3_settings(lv_obj_t *parent)
     lv_label_set_text(lbl_refresh, "刷新");
     lv_obj_set_style_text_color(lbl_refresh, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(lbl_refresh);
+
+    /* 音频输出模式切换按钮 */
+    s_btn_audio_mode = lv_button_create(bt_card);
+    lv_obj_set_ext_click_area(s_btn_audio_mode, 10);
+    lv_obj_set_size(s_btn_audio_mode, 120, 28);
+    lv_obj_align(s_btn_audio_mode, LV_ALIGN_TOP_RIGHT, -84, 8);
+    lv_obj_set_style_bg_color(s_btn_audio_mode, lv_color_hex(0x607D8B), 0);
+    lv_obj_set_style_radius(s_btn_audio_mode, 6, 0);
+    lv_obj_clear_flag(s_btn_audio_mode, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(s_btn_audio_mode, on_audio_mode_toggle_clicked, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(s_btn_audio_mode, on_audio_mode_toggle_clicked, LV_EVENT_SHORT_CLICKED, NULL);
+
+    s_lbl_audio_mode = lv_label_create(s_btn_audio_mode);
+    apply_cjk_font(s_lbl_audio_mode);
+    lv_label_set_text(s_lbl_audio_mode, (s_audio_mode == VOCAVIBE_AUDIO_MODE_SPEAKER) ? "输出: 板载喇叭" : "输出: 蓝牙耳机");
+    lv_obj_set_style_text_color(s_lbl_audio_mode, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_center(s_lbl_audio_mode);
 
     /* 设备列表容器 (342 x 204, y=42) */
     s_bt_list = lv_obj_create(bt_card);
@@ -1397,4 +1449,95 @@ void vocavibe_ui_set_net_status(bool connected, const char *status_str)
         snprintf(s_net_status_buf, sizeof(s_net_status_buf), "网络代理: %s", connected ? "已连接" : "未连接");
     }
     s_net_dirty = true;
+}
+
+void vocavibe_ui_set_audio_mode(vocavibe_audio_mode_t mode)
+{
+    s_audio_mode = mode;
+    if (s_lbl_audio_mode) {
+        lv_label_set_text(s_lbl_audio_mode, (mode == VOCAVIBE_AUDIO_MODE_SPEAKER) ? "输出: 板载喇叭" : "输出: 蓝牙耳机");
+    }
+    if (s_cbs.on_audio_mode) {
+        s_cbs.on_audio_mode(mode);
+    }
+}
+
+vocavibe_audio_mode_t vocavibe_ui_get_audio_mode(void)
+{
+    return s_audio_mode;
+}
+
+void vocavibe_ui_show_audio_modal(void)
+{
+    if (s_audio_modal) {
+        return;
+    }
+    lv_obj_t *scr = lv_screen_active();
+    if (!scr) return;
+
+    /* 半透明磨砂遮罩背景 (390 x 450) */
+    s_audio_modal = lv_obj_create(scr);
+    lv_obj_set_size(s_audio_modal, 390, 450);
+    lv_obj_center(s_audio_modal);
+    lv_obj_set_style_bg_color(s_audio_modal, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(s_audio_modal, LV_OPA_50, 0);
+    lv_obj_set_style_border_width(s_audio_modal, 0, 0);
+    lv_obj_set_style_radius(s_audio_modal, 0, 0);
+    lv_obj_clear_flag(s_audio_modal, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* 居中手账风弹窗卡片 (330 x 170) */
+    lv_obj_t *card = lv_obj_create(s_audio_modal);
+    lv_obj_set_size(card, 330, 170);
+    lv_obj_center(card);
+    lv_obj_set_style_bg_color(card, lv_color_hex(COLOR_PAPER_CARD), 0);
+    lv_obj_set_style_border_color(card, lv_color_hex(COLOR_PAPER_BORDER), 0);
+    lv_obj_set_style_border_width(card, 2, 0);
+    lv_obj_set_style_radius(card, 16, 0);
+    lv_obj_set_style_shadow_width(card, 20, 0);
+    lv_obj_set_style_shadow_opa(card, 80, 0);
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* 标题提示文字 */
+    lv_obj_t *title = lv_label_create(card);
+    apply_cjk_font(title);
+    lv_label_set_text(title, "蓝牙已连接，请选择你的音频播放设备");
+    lv_label_set_long_mode(title, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(title, 290);
+    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(COLOR_INK_MAIN), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 14);
+
+    /* 选项 1: 蓝牙耳机 (124 x 42) */
+    lv_obj_t *btn_headset = lv_button_create(card);
+    lv_obj_set_ext_click_area(btn_headset, 8);
+    lv_obj_set_size(btn_headset, 124, 42);
+    lv_obj_align(btn_headset, LV_ALIGN_BOTTOM_LEFT, 12, -14);
+    lv_obj_set_style_bg_color(btn_headset, lv_color_hex(COLOR_BTN_SLATE), 0);
+    lv_obj_set_style_radius(btn_headset, 8, 0);
+    lv_obj_clear_flag(btn_headset, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(btn_headset, on_modal_headset_clicked, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(btn_headset, on_modal_headset_clicked, LV_EVENT_SHORT_CLICKED, NULL);
+
+    lv_obj_t *lbl_hs = lv_label_create(btn_headset);
+    apply_cjk_font(lbl_hs);
+    lv_label_set_text(lbl_hs, "蓝牙耳机");
+    lv_obj_set_style_text_color(lbl_hs, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_center(lbl_hs);
+
+    /* 选项 2: 板载喇叭 (124 x 42) */
+    lv_obj_t *btn_spk = lv_button_create(card);
+    lv_obj_set_ext_click_area(btn_spk, 8);
+    lv_obj_set_size(btn_spk, 124, 42);
+    lv_obj_align(btn_spk, LV_ALIGN_BOTTOM_RIGHT, -12, -14);
+    lv_obj_set_style_bg_color(btn_spk, lv_color_hex(COLOR_SEAL_GOOD), 0);
+    lv_obj_set_style_radius(btn_spk, 8, 0);
+    lv_obj_clear_flag(btn_spk, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(btn_spk, on_modal_speaker_clicked, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(btn_spk, on_modal_speaker_clicked, LV_EVENT_SHORT_CLICKED, NULL);
+
+    lv_obj_t *lbl_spk = lv_label_create(btn_spk);
+    apply_cjk_font(lbl_spk);
+    lv_label_set_text(lbl_spk, "板载喇叭");
+    lv_obj_set_style_text_color(lbl_spk, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_center(lbl_spk);
 }
