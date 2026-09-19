@@ -699,6 +699,22 @@ void vocavibe_core_handle_line(const char *line)
         }
         vocavibe_ui_set_net_status(conn, status_buf);
     }
+    /* 11. 时间同步报文 (宿主机下发高精度时间戳) */
+    else if (strcmp(type, "time_sync") == 0) {
+        cJSON *jts = cJSON_GetObjectItem(root, "timestamp");
+        if (jts) {
+            time_t sec = 0;
+            if (jts->valuedouble > 0) sec = (time_t)jts->valuedouble;
+            else if (jts->valueint > 0) sec = (time_t)jts->valueint;
+            if (sec > 0) {
+                struct timeval tv;
+                tv.tv_sec = sec;
+                tv.tv_usec = 0;
+                settimeofday(&tv, NULL);
+                printf("[VocaVibe] 成功同步宿主机时间: timestamp=%ld\n", (long)sec);
+            }
+        }
+    }
 
     cJSON_Delete(root);
 }

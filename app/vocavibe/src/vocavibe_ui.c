@@ -80,6 +80,8 @@ static lv_obj_t *s_nav_btns[4];
 static lv_obj_t *s_p0_due_val = NULL;
 static lv_obj_t *s_p0_done_val = NULL;
 static lv_obj_t *s_p0_total_val = NULL;
+static lv_obj_t *s_p0_date_lbl = NULL;
+static lv_obj_t *s_p0_time_lbl = NULL;
 
 /* --- Page 1: Anki 卡片控件 --- */
 static lv_obj_t *s_p1_progress_lbl = NULL;
@@ -208,20 +210,6 @@ static void on_nav_btn_clicked(lv_event_t *e)
         lv_tileview_set_tile_by_index(s_tv, (uint32_t)target_idx, 0, LV_ANIM_OFF);
         update_nav_buttons_style((int)target_idx);
     }
-}
-
-static void on_dash_start_study_clicked(lv_event_t *e)
-{
-    (void)e;
-    printf("[VocaVibe UI] 触控点击: 开始 Anki 记忆复习\n");
-    vocavibe_ui_switch_page(1);
-}
-
-static void on_dash_start_ai_clicked(lv_event_t *e)
-{
-    (void)e;
-    printf("[VocaVibe UI] 触控点击: 进入 AI 助教交互\n");
-    vocavibe_ui_switch_page(2);
 }
 
 static void on_card_flip_clicked(lv_event_t *e)
@@ -426,43 +414,36 @@ static void create_page_0_dashboard(lv_obj_t *parent)
     lv_obj_set_style_text_color(tot_sub, lv_color_hex(COLOR_INK_MUTED), 0);
     lv_obj_align(tot_sub, LV_ALIGN_TOP_RIGHT, -15, 38);
 
-    /* 快捷手账大按钮 1: 进入 Anki 复习 */
-    lv_obj_t *btn_study = lv_button_create(parent);
-    lv_obj_set_ext_click_area(btn_study, 12);
-    lv_obj_set_size(btn_study, SAFE_CARD_W, 64);
-    lv_obj_align(btn_study, LV_ALIGN_TOP_MID, 0, 175);
-    lv_obj_set_style_bg_color(btn_study, lv_color_hex(COLOR_BTN_BROWN), 0);
-    lv_obj_set_style_border_color(btn_study, lv_color_hex(0x5D3A20), 0);
-    lv_obj_set_style_border_width(btn_study, 2, 0);
-    lv_obj_set_style_radius(btn_study, 14, 0);
-    lv_obj_clear_flag(btn_study, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_event_cb(btn_study, on_dash_start_study_clicked, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(btn_study, on_dash_start_study_clicked, LV_EVENT_SHORT_CLICKED, NULL);
+    /* 桌面伴侣时钟卡片 (Year-Month-Day + 24-hour time) */
+    lv_obj_t *clock_card = lv_obj_create(parent);
+    lv_obj_set_size(clock_card, SAFE_CARD_W, 160);
+    lv_obj_align(clock_card, LV_ALIGN_TOP_MID, 0, 175);
+    lv_obj_set_style_bg_color(clock_card, lv_color_hex(COLOR_PAPER_CARD), 0);
+    lv_obj_set_style_border_color(clock_card, lv_color_hex(COLOR_PAPER_BORDER), 0);
+    lv_obj_set_style_border_width(clock_card, 2, 0);
+    lv_obj_set_style_radius(clock_card, 14, 0);
+    lv_obj_clear_flag(clock_card, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *btn_study_lbl = lv_label_create(btn_study);
-    apply_cjk_font(btn_study_lbl);
-    lv_label_set_text(btn_study_lbl, "📖 开始 Anki 记忆复习 >");
-    lv_obj_set_style_text_color(btn_study_lbl, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_center(btn_study_lbl);
+    /* 1. 年月日日期 */
+    s_p0_date_lbl = lv_label_create(clock_card);
+    apply_cjk_font(s_p0_date_lbl);
+    lv_label_set_text(s_p0_date_lbl, "2026-09-20");
+    lv_obj_set_style_text_color(s_p0_date_lbl, lv_color_hex(COLOR_INK_MUTED), 0);
+    lv_obj_align(s_p0_date_lbl, LV_ALIGN_TOP_MID, 0, 16);
 
-    /* 快捷手账大按钮 2: AI 助教实时问答 */
-    lv_obj_t *btn_ai = lv_button_create(parent);
-    lv_obj_set_ext_click_area(btn_ai, 12);
-    lv_obj_set_size(btn_ai, SAFE_CARD_W, 64);
-    lv_obj_align(btn_ai, LV_ALIGN_TOP_MID, 0, 255);
-    lv_obj_set_style_bg_color(btn_ai, lv_color_hex(COLOR_BTN_SLATE), 0);
-    lv_obj_set_style_border_color(btn_ai, lv_color_hex(0x37474F), 0);
-    lv_obj_set_style_border_width(btn_ai, 2, 0);
-    lv_obj_set_style_radius(btn_ai, 14, 0);
-    lv_obj_clear_flag(btn_ai, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_event_cb(btn_ai, on_dash_start_ai_clicked, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(btn_ai, on_dash_start_ai_clicked, LV_EVENT_SHORT_CLICKED, NULL);
+    /* 2. 24 小时制时间 */
+    s_p0_time_lbl = lv_label_create(clock_card);
+    apply_cjk_font(s_p0_time_lbl);
+    lv_label_set_text(s_p0_time_lbl, "00:00:00");
+    lv_obj_set_style_text_color(s_p0_time_lbl, lv_color_hex(COLOR_INK_MAIN), 0);
+    lv_obj_align(s_p0_time_lbl, LV_ALIGN_CENTER, 0, 6);
 
-    lv_obj_t *btn_ai_lbl = lv_label_create(btn_ai);
-    apply_cjk_font(btn_ai_lbl);
-    lv_label_set_text(btn_ai_lbl, "🎙️ 进入 AI 助教交互 >");
-    lv_obj_set_style_text_color(btn_ai_lbl, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_center(btn_ai_lbl);
+    /* 3. 底部手账印章小标 */
+    lv_obj_t *clock_sub = lv_label_create(clock_card);
+    apply_cjk_font(clock_sub);
+    lv_label_set_text(clock_sub, "随声记 · 学习伴侣时钟");
+    lv_obj_set_style_text_color(clock_sub, lv_color_hex(COLOR_INK_MUTED), 0);
+    lv_obj_align(clock_sub, LV_ALIGN_BOTTOM_MID, 0, -10);
 
     /* 底部滑动指引 */
     lv_obj_t *guide_lbl = lv_label_create(parent);
@@ -1078,6 +1059,25 @@ void vocavibe_ui_poll(void)
         if (s_p0_total_val) {
             snprintf(buf, sizeof(buf), "%d", s_stat_total);
             lv_label_set_text(s_p0_total_val, buf);
+        }
+    }
+
+    /* 2.5 桌面伴侣时钟刷新 (每秒刷新一次年月日与 24 小时制时间) */
+    static time_t s_last_clock_sec = 0;
+    time_t cur_clock_sec = time(NULL);
+    if (cur_clock_sec != s_last_clock_sec) {
+        s_last_clock_sec = cur_clock_sec;
+        struct tm *tm_info = localtime(&cur_clock_sec);
+        if (tm_info) {
+            char time_buf[32];
+            char date_buf[64];
+            snprintf(date_buf, sizeof(date_buf), "%04d-%02d-%02d",
+                     tm_info->tm_year + 1900, tm_info->tm_mon + 1, tm_info->tm_mday);
+            snprintf(time_buf, sizeof(time_buf), "%02d:%02d:%02d",
+                     tm_info->tm_hour, tm_info->tm_min, tm_info->tm_sec);
+
+            if (s_p0_date_lbl) lv_label_set_text(s_p0_date_lbl, date_buf);
+            if (s_p0_time_lbl) lv_label_set_text(s_p0_time_lbl, time_buf);
         }
     }
 

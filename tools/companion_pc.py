@@ -174,32 +174,37 @@ class AudioListener(threading.Thread):
                 chunk_i16 = np.frombuffer(raw_chunk, dtype=np.int16)
                 chunk_rms = float(np.sqrt(np.mean(chunk_i16.astype(np.float32)**2)))
 
-                # 动态自适应 VAD 触发阈值 (蓝牙耳机底噪 ~20.5，人声讲话 ~26-50+)
-                vad_thresh = max(25.0, baseline_rms + 5.0)
+                # 双阈值滞后 VAD (Hysteresis VAD)
+                # 针对蓝牙耳机底噪 (~20.5)，轻声说话 (~22.0) 即可灵敏触发
+                onset_thresh = max(21.5, baseline_rms + 1.2)
+                continuation_thresh = max(20.8, baseline_rms + 0.5)
 
                 if not in_speech:
-                    if chunk_rms >= vad_thresh:
+                    if chunk_rms >= onset_thresh:
                         in_speech = True
                         speech_chunks = list(pre_speech) + [raw_chunk]
                         silence_count = 0
+                        print(f"🎙️ [VAD 触发] 人声启动: RMS={chunk_rms:.1f} (门限={onset_thresh:.1f})")
                     else:
                         # 动态平滑跟踪环境底噪
                         baseline_rms = baseline_rms * 0.95 + chunk_rms * 0.05
                         pre_speech.append(raw_chunk)
                 else:
                     speech_chunks.append(raw_chunk)
-                    if chunk_rms < vad_thresh:
+                    if chunk_rms < continuation_thresh:
                         silence_count += 1
                     else:
                         silence_count = 0
 
-                    # 判定语音结束：静音持续 500ms (5 个 chunk) 或单次讲话达到 8 秒上限
-                    if silence_count >= 5 or len(speech_chunks) >= 80:
-                        # 过滤低于 0.8 秒的杂音或短爆破音
+                    # 判定语音结束：连续 6 个 chunk (600ms) 低于维持门限，或单次达到 8 秒上限
+                    if silence_count >= 6 or len(speech_chunks) >= 80:
+                        # 过滤低于 0.8 秒的杂音
                         if len(speech_chunks) >= 8:
                             all_bytes = b"".join(speech_chunks)
                             arr_i16 = np.frombuffer(all_bytes, dtype=np.int16)
+                            # 施加 1.5x 数字增益放大并饱和限幅，极大提升弱人声在 Whisper 中的识别率
                             audio_f32 = arr_i16.astype(np.float32) / 32768.0
+                            audio_f32 = np.clip(audio_f32 * 1.5, -1.0, 1.0)
                             avg_rms = float(np.sqrt(np.mean(arr_i16.astype(np.float32)**2)))
                             src_name = "蓝牙耳机麦克风" if current_source else "电脑内置麦克风"
                             self.asr_queue.put((audio_f32, avg_rms, src_name))
@@ -224,6 +229,9 @@ class VocaVibeCompanion:
         self.connected_headset = None
         self.audio_mode = "headset"  # "headset" (蓝牙耳机) 或 "speaker" (板载喇叭)
         self.is_ai_speaking = False  # 半双工状态锁
+        self.tts_voice = "zh-TW-HsiaoChenNeural"  # 经典小智晓臻台湾腔 (亦可选 "zh-TW-HsiaoYuNeural")
+        self.tts_rate = "+12%"  # 轻快活泼语速 (经典小智风)
+        self.tts_pitch = "+4Hz" # 语调微扬 (经典小智风)
 
     def _open_port(self, port_dev):
         s = serial.Serial()
@@ -358,9 +366,9 @@ class VocaVibeCompanion:
         tmp_wav = "/tmp/vocavibe_tts.wav"
 
         try:
-            # 1. 异步生成 Edge-TTS 台湾女声
+            # 1. 异步生成 Edge-TTS 经典小智台湾女声 (带语速与音高调优)
             async def gen_voice():
-                comm = edge_tts.Communicate(text, "zh-TW-HsiaoChenNeural")
+                comm = edge_tts.Communicate(text, self.tts_voice, rate=self.tts_rate, pitch=self.tts_pitch)
                 await comm.save(tmp_mp3)
 
             asyncio.run(gen_voice())
@@ -548,7 +556,12 @@ class VocaVibeCompanion:
                 elif ptype == "net_connect":
                     print("🤝 [网络握手] 收到开发板网络中转连接请求，正在握手响应...")
                     self.send_to_board({"type": "net_status", "connected": True, "ip": "127.0.0.1"})
-                    print("✅ 已成功向开发板回传网络代理就绪状态 (127.0.0.1)")
+                    self.send_to_board({
+                        "type": "time_sync",
+                        "timestamp": int(time.time()),
+                        "time": time.strftime("%Y-%m-%d %H:%M:%S")
+                    })
+                    print("✅ 已成功向开发板回传网络代理就绪状态与时间同步")
                 elif ptype == "sync_pull":
                     threading.Thread(target=self.sync_from_anki_connect, daemon=True).start()
                 elif ptype == "bt_scan":
@@ -624,11 +637,13 @@ class VocaVibeCompanion:
         print("  1. asr <text>   - 模拟耳机 ASR 拾音，触发板端意图或大模型")
         print("  2. mimo <query> - 直接测试 MiMo 2.5 并推流到板端")
         print("  3. tts <text>   - 测试小智台湾腔 TTS 播报")
-        print("  4. mode <hs|sp> - 切换音频播放设备 (hs=耳机, sp=喇叭)")
-        print("  5. sync         - 触发 AnkiConnect 同步")
-        print("  6. scan         - 模拟扫描周围蓝牙耳机并上报板端")
-        print("  7. card_add <w> - 动态推送添加新卡片")
-        print("  8. quit         - 退出伴侣程序")
+        print("  4. voice <chen|yu> - 切换小智音色 (chen=经典晓臻活泼风, yu=晓雨温柔风)")
+        print("  5. tts_test     - 耳机试听当前小智音色与语速调优效果")
+        print("  6. mode <hs|sp> - 切换音频播放设备 (hs=耳机, sp=喇叭)")
+        print("  7. sync         - 触发 AnkiConnect 同步")
+        print("  8. scan         - 模拟扫描周围蓝牙耳机并上报板端")
+        print("  9. card_add <w> - 动态推送添加新卡片")
+        print("  10. quit        - 退出伴侣程序")
         print("============================================================\n")
 
         while self.running:
@@ -645,6 +660,22 @@ class VocaVibeCompanion:
                 elif cmd.startswith("tts "):
                     text = cmd[4:].strip()
                     threading.Thread(target=self.play_tts_to_headset, args=(text,), daemon=True).start()
+                elif cmd.startswith("voice "):
+                    v = cmd[6:].strip().lower()
+                    if "yu" in v:
+                        self.tts_voice = "zh-TW-HsiaoYuNeural"
+                        self.tts_rate = "+10%"
+                        self.tts_pitch = "+3Hz"
+                        print("🎙️ 小智音色已切换为: 晓雨 (zh-TW-HsiaoYuNeural, 温柔甜美台湾腔)")
+                    else:
+                        self.tts_voice = "zh-TW-HsiaoChenNeural"
+                        self.tts_rate = "+12%"
+                        self.tts_pitch = "+4Hz"
+                        print("🎙️ 小智音色已切换为: 晓臻 (zh-TW-HsiaoChenNeural, 经典活泼小智台湾腔)")
+                elif cmd == "tts_test":
+                    test_txt = "你好呀！我是小智助教，有什么我可以帮你的吗？"
+                    print(f"🔊 正在使用当前音色 ({self.tts_voice}, rate={self.tts_rate}, pitch={self.tts_pitch}) 测试播报...")
+                    threading.Thread(target=self.play_tts_to_headset, args=(test_txt,), daemon=True).start()
                 elif cmd.startswith("mode "):
                     arg = cmd[5:].strip()
                     self.audio_mode = "speaker" if arg in ["sp", "speaker"] else "headset"
@@ -678,6 +709,11 @@ class VocaVibeCompanion:
         if self.ser and self.ser.is_open:
             time.sleep(0.1)
             self.send_to_board({"type": "net_status", "connected": True, "ip": "127.0.0.1"})
+            self.send_to_board({
+                "type": "time_sync",
+                "timestamp": int(time.time()),
+                "time": time.strftime("%Y-%m-%d %H:%M:%S")
+            })
         t_serial = threading.Thread(target=self.serial_listen_loop, daemon=True)
         t_serial.start()
         t_bt = threading.Thread(target=self.bluetooth_monitor_loop, daemon=True)
