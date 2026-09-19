@@ -564,6 +564,7 @@ void vocavibe_core_handle_line(const char *line)
         cJSON *jai = cJSON_GetObjectItem(root, "ai");
         const char *user_str = (juser && juser->valuestring) ? juser->valuestring : "";
         const char *ai_str = (jai && jai->valuestring) ? jai->valuestring : "";
+        vocavibe_ui_switch_page(2);
         vocavibe_ui_set_ai_chat(user_str, ai_str);
         vocavibe_ui_set_ai_state(AI_STATE_SPEAKING);
     }
