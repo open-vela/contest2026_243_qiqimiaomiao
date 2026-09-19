@@ -966,6 +966,7 @@ int vocavibe_ui_init(const vocavibe_ui_callbacks_t *cbs)
     lv_obj_set_size(s_tv, SCREEN_W, TV_H);
     lv_obj_align(s_tv, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_set_style_bg_color(s_tv, lv_color_hex(COLOR_PARCHMENT_BG), 0);
+    lv_obj_set_style_anim_duration(s_tv, 250, 0); /* 250ms 丝滑页面平滑滑动切换 */
     lv_obj_add_event_cb(s_tv, on_tileview_value_changed, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(s_tv, on_tileview_value_changed, LV_EVENT_SCROLL_END, NULL);
 
@@ -1010,9 +1011,9 @@ void vocavibe_ui_poll(void)
         }
     }
 
-    /* 1. 切换页面请求 */
+    /* 1. 切换页面请求 (开启 250ms 丝滑平滑滑动动效) */
     if (s_switch_to_page >= 0 && s_switch_to_page < 4 && s_tv) {
-        lv_tileview_set_tile_by_index(s_tv, (uint32_t)s_switch_to_page, 0, LV_ANIM_OFF);
+        lv_tileview_set_tile_by_index(s_tv, (uint32_t)s_switch_to_page, 0, LV_ANIM_ON);
         update_nav_buttons_style(s_switch_to_page);
         s_switch_to_page = -1;
     }
@@ -1084,29 +1085,34 @@ void vocavibe_ui_poll(void)
         if (s_chat_ai_lbl) lv_label_set_text(s_chat_ai_lbl, s_chat_ai_buf);
     }
 
-    /* 5. 小智墨水律动声波动效 */
-    s_anim_phase += 0.15f;
-    if (s_anim_phase > 6.28318f) s_anim_phase -= 6.28318f;
+    /* 5. 小智墨水律动声波动效：仅在当前处于 Page 2 时以 30FPS 节流刷新，彻底杜绝后台高频无效重绘 */
+    static uint32_t s_last_wave_tick = 0;
+    uint32_t now_tick = lv_tick_get();
+    if (s_current_page == 2 && (now_tick - s_last_wave_tick >= 33)) {
+        s_last_wave_tick = now_tick;
+        s_anim_phase += 0.25f;
+        if (s_anim_phase > 6.28318f) s_anim_phase -= 6.28318f;
 
-    float amp = 6.0f;
-    if (s_ai_state == AI_STATE_LISTENING) {
-        amp = 26.0f;
-        if (s_ai_status_lbl) lv_label_set_text(s_ai_status_lbl, "正在聆听您的提问...");
-    } else if (s_ai_state == AI_STATE_THINKING) {
-        amp = 18.0f;
-        if (s_ai_status_lbl) lv_label_set_text(s_ai_status_lbl, "MiMo 2.5 正在流式思考中...");
-    } else if (s_ai_state == AI_STATE_SPEAKING) {
-        amp = 30.0f;
-        if (s_ai_status_lbl) lv_label_set_text(s_ai_status_lbl, "正在通过蓝牙耳机播报语音...");
-    } else {
-        amp = 6.0f;
-        if (s_ai_status_lbl) lv_label_set_text(s_ai_status_lbl, "唤醒词：你好 openvela");
-    }
+        float amp = 6.0f;
+        if (s_ai_state == AI_STATE_LISTENING) {
+            amp = 26.0f;
+            if (s_ai_status_lbl) lv_label_set_text(s_ai_status_lbl, "正在聆听您的提问...");
+        } else if (s_ai_state == AI_STATE_THINKING) {
+            amp = 18.0f;
+            if (s_ai_status_lbl) lv_label_set_text(s_ai_status_lbl, "MiMo 2.5 正在流式思考中...");
+        } else if (s_ai_state == AI_STATE_SPEAKING) {
+            amp = 30.0f;
+            if (s_ai_status_lbl) lv_label_set_text(s_ai_status_lbl, "正在通过蓝牙耳机播报语音...");
+        } else {
+            amp = 6.0f;
+            if (s_ai_status_lbl) lv_label_set_text(s_ai_status_lbl, "唤醒词：你好 openvela");
+        }
 
-    for (int i = 0; i < NUM_WAVE_BARS; i++) {
-        if (s_wave_bars[i]) {
-            float h = 10.0f + fabsf(sinf(s_anim_phase + (float)i * 0.9f)) * amp;
-            lv_obj_set_height(s_wave_bars[i], (int32_t)h);
+        for (int i = 0; i < NUM_WAVE_BARS; i++) {
+            if (s_wave_bars[i]) {
+                float h = 10.0f + fabsf(sinf(s_anim_phase + (float)i * 0.9f)) * amp;
+                lv_obj_set_height(s_wave_bars[i], (int32_t)h);
+            }
         }
     }
 
@@ -1223,10 +1229,17 @@ void vocavibe_ui_poll(void)
         }
     }
 
-    /* 9. 处理 LVGL 定时器和触控事件 (4ms 极速响应，实现 60FPS 丝滑触控) */
+    /* 9. 处理 LVGL 定时器和触控事件 (动态极速调度，跑满硬件刷屏极限) */
     uint32_t idle = lv_timer_handler();
-    idle = (idle > 0 && idle <= 4) ? idle : 4;
-    usleep(idle * 1000);
+    /* 当正在切页滑动或手势拖动时，idle 为 0，仅微延时 1ms 让出总线并跑满 60FPS 极速渲染；
+     * 静态无操作时适度休眠降低功耗与总线发热 */
+    if (idle == 0) {
+        usleep(1000);
+    } else if (idle < 8) {
+        usleep(idle * 1000);
+    } else {
+        usleep(8000);
+    }
 }
 
 void vocavibe_ui_switch_page(int page_idx)
