@@ -34,7 +34,7 @@ static void show_banner(void)
 static void *serial_reader_thread(void *arg)
 {
     (void)arg;
-    char line[512];
+    static char line[2048];
     while (s_app_running) {
         if (!fgets(line, sizeof(line), stdin)) {
             clearerr(stdin);
