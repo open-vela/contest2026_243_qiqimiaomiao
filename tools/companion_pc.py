@@ -24,12 +24,13 @@ import threading
 import subprocess
 import argparse
 import requests
+import re
+import numpy as np
 import serial
 import serial.tools.list_ports
 import av
 import edge_tts
 from faster_whisper import WhisperModel
-import numpy as np
 
 # Xiaomi MiMo 2.5 云端大模型配置
 MIMO_API_KEY = "tp-c2rn3aytnmxcfash8yv6xenmzntatkev0btwhp06540wnhz3"
@@ -45,7 +46,7 @@ class AudioListener(threading.Thread):
         super().__init__(daemon=True)
         self.companion = companion
         self.model = None
-        self.last_active_time = 0.0
+        self.last_active_time = 0
 
     def run(self):
         print("🎙️ [ASR] 正在加载 Faster-Whisper 语音识别模型...")
@@ -65,11 +66,15 @@ class AudioListener(threading.Thread):
                 continue
 
             try:
+                # 优先选用蓝牙耳机的麦克风输入源，若无则使用系统默认麦克风
+                source = self.companion.get_bluetooth_source()
+                cmd = ["parecord", "--channels=1", "--rate=16000", "--format=s16le"]
+                if source:
+                    cmd.extend(["--device", source])
+                cmd.append(tmp_rec)
+
                 # 录制 2.5 秒音频切片
-                p = subprocess.Popen(
-                    ["parecord", "--channels=1", "--rate=16000", "--format=s16le", tmp_rec],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                )
+                p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 # 监测录音过程，若中途 AI 开始播报则立刻终止当前录音
                 for _ in range(25):
                     time.sleep(0.1)
@@ -95,8 +100,8 @@ class AudioListener(threading.Thread):
                     audio_data = np.frombuffer(frames, dtype=np.int16)
                     rms = np.sqrt(np.mean(audio_data.astype(np.float32)**2))
 
-                # 静音/杂音过滤门限
-                if rms < 350:
+                # 静音/杂音过滤门限 (蓝牙耳机麦克风正常讲话 RMS 在 35~200 左右)
+                if rms < 30:
                     continue
 
                 # 执行 Faster-Whisper 转写
@@ -105,18 +110,20 @@ class AudioListener(threading.Thread):
                 if not text:
                     continue
 
-                print(f"🎤 [ASR 捕获语音]: '{text}' (RMS={int(rms)})")
+                src_name = "蓝牙耳机麦克风" if source else "电脑内置麦克风"
+                print(f"🎤 [ASR 捕获语音]: '{text}' (RMS={int(rms)}, 拾音设备={src_name})")
 
-                # 唤醒词匹配检测
-                wake_keywords = ["你好 openvela", "你好openvela", "openvela", "OpenVela", "你好"]
-                is_wake = any(k in text for k in wake_keywords)
+                # 唤醒词匹配检测 (归一化去除空格标点转小写)
+                clean_text = re.sub(r"[^\w\u4e00-\u9fa5]", "", text).lower()
+                wake_keywords = ["你好openvela", "openvela", "你好小智", "小智", "随声记", "你好"]
+                is_wake = any(k in clean_text for k in wake_keywords)
 
                 now = time.time()
                 if is_wake:
                     print(f"🔔 [语音唤醒成功]: '{text}'")
                     self.last_active_time = now
                     query = text
-                    for k in wake_keywords:
+                    for k in ["你好 openvela", "你好openvela", "你好 open vela", "你好open vela", "openvela", "OpenVela", "你好", "小智"]:
                         query = query.replace(k, "")
                     query = query.strip(" ，,。！!？?")
 
