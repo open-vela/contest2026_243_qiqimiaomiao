@@ -589,10 +589,14 @@ void vocavibe_core_handle_line(const char *line)
                 cJSON *jname = cJSON_GetObjectItem(dev, "name");
                 cJSON *jmac = cJSON_GetObjectItem(dev, "mac");
                 cJSON *jrssi = cJSON_GetObjectItem(dev, "rssi");
+                cJSON *jstat = cJSON_GetObjectItem(dev, "status");
+                cJSON *jconn = cJSON_GetObjectItem(dev, "connected");
                 const char *name = jname && jname->valuestring ? jname->valuestring : "Unknown Headset";
                 const char *mac = jmac && jmac->valuestring ? jmac->valuestring : "--:--:--:--";
+                const char *stat_str = jstat && jstat->valuestring ? jstat->valuestring : NULL;
+                bool is_conn = jconn ? cJSON_IsTrue(jconn) : false;
                 int rssi = jrssi ? jrssi->valueint : -60;
-                vocavibe_ui_add_bt_device(name, mac, rssi);
+                vocavibe_ui_add_bt_device(name, mac, stat_str, rssi, is_conn);
             }
         }
     }

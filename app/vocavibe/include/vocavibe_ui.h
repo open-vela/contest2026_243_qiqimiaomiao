@@ -48,6 +48,7 @@ void vocavibe_ui_poll(void);
 
 void vocavibe_ui_switch_page(int page_idx);
 int  vocavibe_ui_get_current_page(void);
+void vocavibe_ui_dump_layout(void);
 
 /* 页面 0: 仪表盘数据刷新 */
 void vocavibe_ui_update_dashboard(int total, int due, int reviewed);
@@ -62,7 +63,7 @@ void vocavibe_ui_set_ai_chat(const char *user_query, const char *ai_reply);
 
 /* 页面 3: 蓝牙代理与同步设置 */
 void vocavibe_ui_set_net_status(bool connected, const char *status_str);
-void vocavibe_ui_add_bt_device(const char *name, const char *mac, int rssi);
+void vocavibe_ui_add_bt_device(const char *name, const char *mac, const char *status_str, int rssi, bool is_connected);
 void vocavibe_ui_clear_bt_devices(void);
 void vocavibe_ui_set_bt_status(const char *status_str, bool connected);
 void vocavibe_ui_set_sync_status(const char *status_str);
