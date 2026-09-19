@@ -89,23 +89,9 @@ void vocavibe_touch_diagnose(void)
 static void vocavibe_touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
 {
   (void)indev;
-  bool got_sample = false;
-  int x = s_last_x;
-  int y = s_last_y;
-  lv_indev_state_t cur_state = LV_INDEV_STATE_RELEASED;
+  data->continue_reading = false;
 
-  /* 途径 1: 优先尝试读取内核 input0 驱动缓冲区 (支持运行时动态重连) */
-  static int s_reopen_counter = 0;
-  if (s_input_fd < 0 && ++s_reopen_counter >= 20)
-    {
-      s_reopen_counter = 0;
-      s_input_fd = open("/dev/input0", O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-      if (s_input_fd >= 0)
-        {
-          printf("[VocaVibe Touch] 成功动态热连接 /dev/input0 (fd=%d)\n", s_input_fd);
-        }
-    }
-
+  /* 途径 1: 优先且独占读取内核 input0 驱动事件队列 */
   if (s_input_fd >= 0)
     {
       struct touch_sample_s sample;
@@ -114,21 +100,19 @@ static void vocavibe_touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
         {
           if (sample.point[0].flags & (TOUCH_DOWN | TOUCH_MOVE))
             {
-              cur_state = LV_INDEV_STATE_PRESSED;
-              x = sample.point[0].x;
-              y = sample.point[0].y;
-              got_sample = true;
+              s_last_state = LV_INDEV_STATE_PRESSED;
+              s_last_x = sample.point[0].x;
+              s_last_y = sample.point[0].y;
             }
           else if (sample.point[0].flags & TOUCH_UP)
             {
-              cur_state = LV_INDEV_STATE_RELEASED;
-              got_sample = true;
+              s_last_state = LV_INDEV_STATE_RELEASED;
             }
+          data->continue_reading = true;
         }
     }
-
-  /* 途径 2: 若 input0 未命中（例如硬件中断引脚未触发），直接 I2C 硬件直通轮询 */
-  if (!got_sample && s_i2c_fd >= 0)
+  /* 途径 2: 仅在 input0 未就绪时才启用 I2C 直连备用 */
+  else if (s_i2c_fd >= 0)
     {
       uint8_t buf[5] = {0};
       int ret = ft6146_i2c_read(FT6146_REG_TD_STATUS, buf, sizeof(buf));
@@ -137,44 +121,26 @@ static void vocavibe_touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
           uint8_t touch_num = buf[0] & 0x0f;
           if (touch_num > 0)
             {
-              cur_state = LV_INDEV_STATE_PRESSED;
-              x = ((uint16_t)(buf[1] & 0x0f) << 8) | buf[2];
-              y = ((uint16_t)(buf[3] & 0x0f) << 8) | buf[4];
+              s_last_state = LV_INDEV_STATE_PRESSED;
+              s_last_x = ((uint16_t)(buf[1] & 0x0f) << 8) | buf[2];
+              s_last_y = ((uint16_t)(buf[3] & 0x0f) << 8) | buf[4];
             }
           else
             {
-              cur_state = LV_INDEV_STATE_RELEASED;
+              s_last_state = LV_INDEV_STATE_RELEASED;
             }
-          got_sample = true;
         }
     }
 
   /* 边界限幅 (390 x 450 AMOLED 屏幕) */
-  if (x < 0) x = 0;
-  if (x > 389) x = 389;
-  if (y < 0) y = 0;
-  if (y > 449) y = 449;
+  if (s_last_x < 0) s_last_x = 0;
+  if (s_last_x > 389) s_last_x = 389;
+  if (s_last_y < 0) s_last_y = 0;
+  if (s_last_y > 449) s_last_y = 449;
 
-  s_last_x = x;
-  s_last_y = y;
-
-  data->point.x = x;
-  data->point.y = y;
-  data->state = cur_state;
-
-  /* 状态变化或按下时输出日志 */
-  if (cur_state != s_last_state)
-    {
-      s_last_state = cur_state;
-      if (cur_state == LV_INDEV_STATE_PRESSED)
-        {
-          printf("[VocaVibe Touch] 按下触控点: (%d, %d)\n", x, y);
-        }
-      else
-        {
-          printf("[VocaVibe Touch] 抬起释放触控\n");
-        }
-    }
+  data->point.x = s_last_x;
+  data->point.y = s_last_y;
+  data->state = s_last_state;
 }
 
 lv_indev_t *vocavibe_touch_init(lv_display_t *disp)
