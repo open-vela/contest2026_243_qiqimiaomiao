@@ -926,13 +926,10 @@ int vocavibe_ui_init(const vocavibe_ui_callbacks_t *cbs)
         lv_nuttx_dsc_init(&info);
 
         info.fb_path = "/dev/lcd0";
-#ifdef CONFIG_INPUT_TOUCHSCREEN
-        info.input_path = "/dev/input0";
-#endif
+        info.input_path = NULL; /* 由 vocavibe_touch 统一托管驱动，彻底杜绝双 indev 冲突与粘连 */
 
         lv_nuttx_init(&info, &result);
-        printf("[VocaVibe UI] lv_nuttx_init 完成: 屏幕 disp=%p, 触控 indev=%p\n",
-               result.disp, result.indev);
+        printf("[VocaVibe UI] lv_nuttx_init 完成: 屏幕 disp=%p\n", result.disp);
         if (result.disp == NULL) {
             printf("[VocaVibe UI] 严重错误: 屏幕初始化失败！\n");
             return -1;
