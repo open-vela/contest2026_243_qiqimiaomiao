@@ -605,15 +605,18 @@ void vocavibe_core_handle_line(const char *line)
         printf("[VocaVibe] 成功处理 bt_status 报文!\n");
         cJSON *jconn = cJSON_GetObjectItem(root, "connected");
         cJSON *jname = cJSON_GetObjectItem(root, "name");
+        cJSON *jmac = cJSON_GetObjectItem(root, "mac");
         bool conn = jconn ? cJSON_IsTrue(jconn) : false;
-        const char *name = jname && jname->valuestring ? jname->valuestring : "Bluetooth Headset";
+        const char *name = jname && jname->valuestring ? jname->valuestring : "";
+        const char *mac = jmac && jmac->valuestring ? jmac->valuestring : "";
         char status_buf[64];
         if (conn) {
-            snprintf(status_buf, sizeof(status_buf), "已连接: %s (代理中转)", name);
+            snprintf(status_buf, sizeof(status_buf), "已连接: %s", name[0] ? name : "蓝牙设备");
         } else {
-            snprintf(status_buf, sizeof(status_buf), "未连接蓝牙耳机");
+            snprintf(status_buf, sizeof(status_buf), "未连接蓝牙设备");
         }
         vocavibe_ui_set_bt_status(status_buf, conn);
+        vocavibe_ui_update_device_status(mac, name, conn);
     }
     /* 7. 卡组全量同步 (来自 AnkiConnect 或 Skill) */
     else if (strcmp(type, "sync_deck") == 0) {
