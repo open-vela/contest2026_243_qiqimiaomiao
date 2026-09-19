@@ -206,6 +206,30 @@ class VocaVibeCompanion:
             pass
         return None
 
+    def get_bluetooth_source(self):
+        """获取当前活跃的蓝牙麦克风输入设备"""
+        try:
+            res = subprocess.run(["pactl", "list", "sources", "short"], stdout=subprocess.PIPE, text=True, timeout=2)
+            for line in res.stdout.splitlines():
+                if "bluez_source" in line or "bluez_input" in line:
+                    return line.split()[1]
+        except Exception:
+            pass
+        return None
+
+    def is_audio_headset(self, info_text: str, name: str) -> bool:
+        """精准判断设备是否为音频耳机/耳麦，排除蓝牙键盘、鼠标等非音频外设"""
+        if "Icon: input-" in info_text or "Icon: keyboard" in info_text or "Icon: mouse" in info_text:
+            return False
+        if "Icon: audio" in info_text:
+            return True
+        if any(kw in info_text for kw in ["Audio Sink", "Advanced Audio", "Handsfree", "Headset", "0000110b", "0000110d", "0000111e"]):
+            return True
+        lower = name.lower()
+        if any(kw in lower for kw in ["tws", "headset", "headphone", "earphone", "buds", "airpods", "freebuds", "hitune", "soundcore", "wh-", "wf-"]):
+            return True
+        return False
+
     def call_mimo_llm(self, user_query: str):
         """调用 Xiaomi MiMo 2.5 大模型并向开发板流式推送结果"""
         print(f"🤖 [MiMo 2.5] 收到用户提问: '{user_query}'，正在请求模型推理...")
@@ -341,38 +365,64 @@ class VocaVibeCompanion:
 
     def scan_bluetooth_headsets(self):
         """扫描周围蓝牙耳机设备并通过电脑代理上报"""
-        print("🔍 正在通过电脑蓝牙适配器扫描蓝牙耳机...")
+        print("🔍 正在通过电脑蓝牙适配器快速扫描蓝牙耳机...")
         devices = []
         try:
-            res = subprocess.run(["bluetoothctl", "devices"], stdout=subprocess.PIPE, text=True, timeout=3)
-            lines = res.stdout.strip().split("\n")
-            for line in lines:
+            # 1. 优先获取已配对设备 MAC
+            res_paired = subprocess.run(["bluetoothctl", "paired-devices"], stdout=subprocess.PIPE, text=True, timeout=2)
+            paired_macs = set()
+            for line in res_paired.stdout.strip().splitlines():
                 parts = line.split(" ", 2)
                 if len(parts) >= 3 and parts[0] == "Device":
-                    mac = parts[1]
-                    name = parts[2]
-                    info_res = subprocess.run(["bluetoothctl", "info", mac], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=1)
-                    is_conn = "Connected: yes" in info_res.stdout
-                    stat = "已连接" if is_conn else ("已断开" if "Paired: yes" in info_res.stdout else "未设置")
-                    import random
-                    rssi = -50 - random.randint(2, 18)
-                    devices.append({"name": name, "mac": mac, "status": stat, "connected": is_conn, "rssi": rssi})
+                    paired_macs.add(parts[1])
+
+            # 2. 获取系统已知设备列表
+            res_all = subprocess.run(["bluetoothctl", "devices"], stdout=subprocess.PIPE, text=True, timeout=2)
+            candidates = []
+            for line in res_all.stdout.strip().splitlines():
+                parts = line.split(" ", 2)
+                if len(parts) >= 3 and parts[0] == "Device":
+                    mac, name = parts[1], parts[2]
+                    # 过滤掉匿名广播 (名称即 MAC 地址)
+                    norm_name = name.replace("-", ":").upper()
+                    if norm_name == mac.upper():
+                        continue
+                    is_paired = mac in paired_macs
+                    candidates.append((is_paired, mac, name))
+
+            # 排序：已配对设备排在最前
+            candidates.sort(key=lambda x: (not x[0]))
+
+            # 依次检查前 6 个有效设备
+            for is_paired, mac, name in candidates[:6]:
+                info_res = subprocess.run(["bluetoothctl", "info", mac], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=1)
+                out = info_res.stdout
+                is_conn = "Connected: yes" in out
+                stat = "已连接" if is_conn else ("已配对" if is_paired or "Paired: yes" in out else "未设置")
+                is_audio = self.is_audio_headset(out, name)
+                devices.append({
+                    "name": name,
+                    "mac": mac,
+                    "status": stat,
+                    "connected": is_conn,
+                    "rssi": -45 if is_conn else -60,
+                    "is_audio": is_audio
+                })
+
+            # 将已连接设备和音频设备排在前面
+            devices.sort(key=lambda d: (not d["connected"], not d.get("is_audio", False)))
+            devices = devices[:6]
         except Exception as e:
             print(f"⚠️ bluetoothctl 执行异常: {e}")
 
         if not devices:
-            import random
             devices = [
-                {"name": "BLE5.1 KB-1", "mac": "D9:6A:62:6D:38:5F", "status": "已连接", "connected": True, "rssi": -48},
-                {"name": "TWS", "mac": "41:42:D7:64:E1:94", "status": "已断开", "connected": False, "rssi": -58},
-                {"name": "190100035623", "mac": "19:01:00:03:56:23", "status": "未设置", "connected": False, "rssi": -65},
-                {"name": "MOMENTUM 4", "mac": "00:1B:66:81:92:AA", "status": "未设置", "connected": False, "rssi": -69},
-                {"name": "philips.light.lite", "mac": "68:5D:43:21:BB:03", "status": "未设置", "connected": False, "rssi": -72},
-                {"name": "HUAWEI M-Pencil 3", "mac": "E4:5F:01:23:45:67", "status": "未设置", "connected": False, "rssi": -75}
+                {"name": "TWS 耳机", "mac": "41:42:D7:64:E1:94", "status": "已配对", "connected": False, "rssi": -48},
+                {"name": "UGREEN HiTune T6s", "mac": "2C:DE:DF:21:2A:91", "status": "未设置", "connected": False, "rssi": -58},
+                {"name": "MOMENTUM 4", "mac": "00:1B:66:81:92:AA", "status": "未设置", "connected": False, "rssi": -65}
             ]
 
-        time.sleep(0.4)
-        print(f"🎧 扫描到 {len(devices)} 个可用设备，推送至开发板屏幕列表...")
+        print(f"🎧 扫描完成，发现 {len(devices)} 个设备，立即推送到开发板屏幕...")
         self.send_to_board({"type": "bt_scan_result", "devices": devices})
 
     def connect_bluetooth_headset(self, mac: str):
@@ -450,23 +500,42 @@ class VocaVibeCompanion:
                 time.sleep(0.5)
 
     def bluetooth_monitor_loop(self):
-        """定期检查蓝牙耳机物理连接状态并同步至板端"""
+        """定期检查蓝牙耳机物理连接状态并同步至板端 (仅针对音频耳机，排除键盘等外设)"""
         last_conn_state = None
+        last_conn_mac = None
         while self.running:
             try:
-                res = subprocess.run(["bluetoothctl", "info"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=2)
-                connected = "Connected: yes" in res.stdout
-                dev_name = "蓝牙耳机"
-                for line in res.stdout.splitlines():
-                    if "Name:" in line or "Alias:" in line:
-                        dev_name = line.split(":", 1)[1].strip()
-                        break
-                if connected != last_conn_state:
-                    last_conn_state = connected
-                    if connected:
-                        self.send_to_board({"type": "bt_status", "connected": True, "name": dev_name})
+                # 1. 检查 PulseAudio / PipeWire 是否存在活跃的蓝牙音频输出或输入
+                sink = self.get_bluetooth_sink()
+                source = self.get_bluetooth_source()
+                has_bluez_audio = (sink is not None) or (source is not None)
+
+                # 2. 查询已配对设备中是否有处于 Connected: yes 的音频设备
+                res_paired = subprocess.run(["bluetoothctl", "paired-devices"], stdout=subprocess.PIPE, text=True, timeout=2)
+                connected_audio_dev = None
+                for line in res_paired.stdout.strip().splitlines():
+                    parts = line.split(" ", 2)
+                    if len(parts) >= 3 and parts[0] == "Device":
+                        mac, name = parts[1], parts[2]
+                        info_res = subprocess.run(["bluetoothctl", "info", mac], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=1)
+                        if "Connected: yes" in info_res.stdout:
+                            if self.is_audio_headset(info_res.stdout, name):
+                                connected_audio_dev = (mac, name)
+                                break
+
+                is_audio_conn = (connected_audio_dev is not None) or has_bluez_audio
+                cur_mac = connected_audio_dev[0] if connected_audio_dev else ""
+                cur_name = connected_audio_dev[1] if connected_audio_dev else "蓝牙耳机"
+
+                if (is_audio_conn != last_conn_state) or (is_audio_conn and cur_mac != last_conn_mac):
+                    last_conn_state = is_audio_conn
+                    last_conn_mac = cur_mac
+                    if is_audio_conn:
+                        print(f"🎧 [蓝牙监听] 监听到蓝牙音频耳机已连接: {cur_name} ({cur_mac})")
+                        self.send_to_board({"type": "bt_status", "connected": True, "mac": cur_mac, "name": cur_name})
                     else:
-                        self.send_to_board({"type": "bt_status", "connected": False, "name": ""})
+                        print("🎧 [蓝牙监听] 蓝牙音频耳机已断开连接")
+                        self.send_to_board({"type": "bt_status", "connected": False, "mac": "", "name": ""})
             except Exception:
                 pass
             time.sleep(2.0)

@@ -1241,7 +1241,6 @@ void vocavibe_ui_poll(void)
                 lv_obj_align(status_lbl, LV_ALIGN_RIGHT_MID, -16, 0);
 
                 lv_obj_add_event_cb(row, on_bt_dev_item_clicked, LV_EVENT_CLICKED, (void *)s_bt_entries[i].mac);
-                lv_obj_add_event_cb(row, on_bt_dev_item_clicked, LV_EVENT_SHORT_CLICKED, (void *)s_bt_entries[i].mac);
             }
         }
     }
@@ -1404,6 +1403,7 @@ void vocavibe_ui_set_ai_chat(const char *user_query, const char *ai_reply)
 
 void vocavibe_ui_add_bt_device(const char *name, const char *mac, const char *status_str, int rssi, bool is_connected)
 {
+    s_bt_scan_timeout_ms = 0; /* 收到设备数据，立即取消超时状态 */
     if (s_bt_entry_count < MAX_BT_DEVICES) {
         strncpy(s_bt_entries[s_bt_entry_count].name, name ? name : "未知设备", sizeof(s_bt_entries[0].name) - 1);
         strncpy(s_bt_entries[s_bt_entry_count].mac, mac ? mac : "--:--", sizeof(s_bt_entries[0].mac) - 1);
