@@ -43,13 +43,13 @@ static int ft6146_i2c_read(uint8_t reg, uint8_t *buf, int len)
   struct i2c_transfer_s xfer;
 
   msgs[0].addr = FT6146_I2C_ADDR;
-  msgs[0].flags = 0;
+  msgs[0].flags = I2C_M_NOSTOP;
   msgs[0].buffer = &reg;
   msgs[0].length = 1;
   msgs[0].frequency = FT6146_I2C_FREQ;
 
   msgs[1].addr = FT6146_I2C_ADDR;
-  msgs[1].flags = I2C_M_READ;
+  msgs[1].flags = I2C_M_READ | I2C_M_NOSTART;
   msgs[1].buffer = buf;
   msgs[1].length = len;
   msgs[1].frequency = FT6146_I2C_FREQ;
@@ -91,43 +91,55 @@ static void vocavibe_touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
   (void)indev;
   data->continue_reading = false;
 
-  /* 途径 1: 优先且独占读取内核 input0 驱动事件队列 */
+  bool got_event = false;
+
+  /* 1. 优先非阻塞轮询内核中断队列 /dev/input0 (单次循环将排队样本处理到最新) */
   if (s_input_fd >= 0)
     {
       struct touch_sample_s sample;
-      int n = read(s_input_fd, &sample, sizeof(sample));
-      if (n == (int)sizeof(sample) && sample.npoints > 0)
+      while (read(s_input_fd, &sample, sizeof(sample)) == (int)sizeof(sample))
         {
-          if (sample.point[0].flags & (TOUCH_DOWN | TOUCH_MOVE))
+          if (sample.npoints > 0)
             {
-              s_last_state = LV_INDEV_STATE_PRESSED;
-              s_last_x = sample.point[0].x;
-              s_last_y = sample.point[0].y;
+              got_event = true;
+              if (sample.point[0].flags & (TOUCH_DOWN | TOUCH_MOVE))
+                {
+                  s_last_state = LV_INDEV_STATE_PRESSED;
+                  s_last_x = sample.point[0].x;
+                  s_last_y = sample.point[0].y;
+                }
+              else if (sample.point[0].flags & TOUCH_UP)
+                {
+                  s_last_state = LV_INDEV_STATE_RELEASED;
+                }
             }
-          else if (sample.point[0].flags & TOUCH_UP)
-            {
-              s_last_state = LV_INDEV_STATE_RELEASED;
-            }
-          data->continue_reading = true;
         }
     }
-  /* 途径 2: 仅在 input0 未就绪时才启用 I2C 直连备用 */
-  else if (s_i2c_fd >= 0)
+
+  /* 2. 硬件级双模校验：
+   * 若状态处于 PRESSED 但本次未读到新 input0 样本，或 input0 未就绪，
+   * 立即通过 I2C 直读 FT6146 状态寄存器确认物理接触状态。
+   * 彻底杜绝因中断窄脉冲偶发丢包导致 LVGL 误以为屏幕持续被按下的假死问题！
+   */
+  if (s_i2c_fd >= 0 && (!got_event || s_input_fd < 0))
     {
-      uint8_t buf[5] = {0};
-      int ret = ft6146_i2c_read(FT6146_REG_TD_STATUS, buf, sizeof(buf));
-      if (ret >= 0)
+      if (s_last_state == LV_INDEV_STATE_PRESSED || s_input_fd < 0)
         {
-          uint8_t touch_num = buf[0] & 0x0f;
-          if (touch_num > 0)
+          uint8_t buf[5] = {0};
+          int ret = ft6146_i2c_read(FT6146_REG_TD_STATUS, buf, sizeof(buf));
+          if (ret >= 0)
             {
-              s_last_state = LV_INDEV_STATE_PRESSED;
-              s_last_x = ((uint16_t)(buf[1] & 0x0f) << 8) | buf[2];
-              s_last_y = ((uint16_t)(buf[3] & 0x0f) << 8) | buf[4];
-            }
-          else
-            {
-              s_last_state = LV_INDEV_STATE_RELEASED;
+              uint8_t touch_num = buf[0] & 0x0f;
+              if (touch_num > 0)
+                {
+                  s_last_state = LV_INDEV_STATE_PRESSED;
+                  s_last_x = ((uint16_t)(buf[1] & 0x0f) << 8) | buf[2];
+                  s_last_y = ((uint16_t)(buf[3] & 0x0f) << 8) | buf[4];
+                }
+              else
+                {
+                  s_last_state = LV_INDEV_STATE_RELEASED;
+                }
             }
         }
     }
