@@ -65,33 +65,41 @@ class AudioListener(threading.Thread):
 
             audio_float, avg_rms, src_name = item
             try:
-                # 内存直通 Faster-Whisper，附带 initial_prompt 强制提示专有名词 openvela
+                # 内存直通 Faster-Whisper，附带 initial_prompt 与 hotwords 强制注入专有名词 openvela
                 segments, _ = self.model.transcribe(
                     audio_float,
                     language="zh",
-                    beam_size=1,
-                    initial_prompt="你好 openvela, OpenVela, VocaVibe, 小智助教, 英语单词卡片"
+                    beam_size=2,
+                    initial_prompt="你好 openvela, OpenVela, VocaVibe, 小智助教, 英语单词卡片",
+                    hotwords="openvela OpenVela VocaVibe"
                 )
                 text = "".join([s.text for s in segments]).strip()
                 if not text:
                     continue
 
-                # 自动对齐修正英文专有名词与常见发音误差 (openela / 欧朋维拉等)
-                text = re.sub(r'open\s*ela', 'openvela', text, flags=re.IGNORECASE)
-                text = re.sub(r'open\s*ella', 'openvela', text, flags=re.IGNORECASE)
-                text = re.sub(r'欧[朋盆鹏]维拉', 'openvela', text)
+                # 自动对齐修正英文专有名词与常见发音误差 (openela / 欧朋维拉 / 不回来 等)
+                text = re.sub(r'open\s*e[l|r]a', 'openvela', text, flags=re.IGNORECASE)
+                text = re.sub(r'open\s*v[i|e]lla', 'openvela', text, flags=re.IGNORECASE)
+                text = re.sub(r'open\s*bella', 'openvela', text, flags=re.IGNORECASE)
+                text = re.sub(r'open\s*vera', 'openvela', text, flags=re.IGNORECASE)
+                text = re.sub(r'open\s*vela', 'openvela', text, flags=re.IGNORECASE)
+                text = re.sub(r'欧[朋盆鹏碰]维拉?', 'openvela', text)
                 text = re.sub(r'会首笔号', '你好 openvela', text)
+                # 针对普通话识别将 openvela 错识别为拼音同音/近音词 ("不回来", "不回啦", "不回家", "部委会")
+                text = re.sub(r'不回[来啦了去家]', 'openvela', text)
+                text = re.sub(r'不[会悔惠]来', 'openvela', text)
+                text = re.sub(r'部委会', 'openvela', text)
 
                 print(f"🎤 [ASR 捕获语音]: '{text}' (RMS={int(avg_rms)}, 拾音设备={src_name})")
 
                 # 归一化清洗文本
                 clean_text = re.sub(r"[^\w\u4e00-\u9fa5]", "", text).lower()
 
-                # 唤醒词与卡片指令关键词库 (丰富 openvela 及其衍生发音)
+                # 唤醒词与卡片指令关键词库 (丰富 openvela 及其衍生发音与同音兜底)
                 wake_keywords = [
                     "你好openvela", "openvela", "你好小智", "小智你好",
                     "小智助教", "小智", "随声记", "你好", "open vela", "openela",
-                    "open-ela", "欧朋维拉", "欧盆维拉", "维拉"
+                    "open-ela", "欧朋维拉", "欧盆维拉", "维拉", "不回来", "你好不回来"
                 ]
                 card_keywords = [
                     "翻转", "背面", "答案", "看释义", "重来", "忘记", "不会",
@@ -125,11 +133,12 @@ class AudioListener(threading.Thread):
     def run(self):
         print("🎙️ [ASR] 正在加载 Faster-Whisper 语音识别模型...")
         try:
-            self.model = WhisperModel("tiny", device="cpu", compute_type="int8")
-            print("✅ [ASR] Faster-Whisper 模型就绪！开启流式无缝麦克风监听 (说 '你好 openvela' 唤醒)...")
+            self.model = WhisperModel("base", device="cpu", compute_type="int8")
+            print("✅ [ASR] Faster-Whisper (base 高精度) 模型就绪！开启流式无缝麦克风监听 (说 '你好 openvela' 唤醒)...")
         except Exception as e:
-            print(f"❌ [ASR] Faster-Whisper 加载异常: {e}")
-            return
+            print(f"⚠️ [ASR] 加载 base 失败，降级加载 tiny: {e}")
+            self.model = WhisperModel("tiny", device="cpu", compute_type="int8")
+            print("✅ [ASR] Faster-Whisper (tiny) 模型就绪！开启流式无缝麦克风监听 (说 '你好 openvela' 唤醒)...")
 
         # 启动解耦的 ASR 处理工作线程
         self.worker_thread = threading.Thread(target=self._asr_worker, daemon=True)
@@ -244,6 +253,7 @@ class VocaVibeCompanion:
         self.tts_voice = "zh-TW-HsiaoChenNeural"  # 经典小智晓臻台湾腔 (亦可选 "zh-TW-HsiaoYuNeural")
         self.tts_rate = "+12%"  # 轻快活泼语速 (经典小智风)
         self.tts_pitch = "+4Hz" # 语调微扬 (经典小智风)
+        self.is_board_net_connected = False  # 开发板端网络代理连接状态 (默认未连接)
 
     def _open_port(self, port_dev):
         s = serial.Serial()
@@ -331,6 +341,15 @@ class VocaVibeCompanion:
         """调用 Xiaomi MiMo 2.5 大模型并向开发板流式推送结果"""
         print(f"🤖 [MiMo 2.5] 收到用户提问: '{user_query}'，正在请求模型推理...")
         self.send_to_board({"type": "ai_state", "state": "thinking"})
+
+        # 针对单纯的唤醒词问候（"你好 openvela", "openvela", "你好小智" 等），进行即时秒级唤醒回应
+        clean_q = re.sub(r"[^\w\u4e00-\u9fa5]", "", user_query).lower()
+        if clean_q in ["你好openvela", "openvela", "你好小智", "小智你好", "你好", "小智"]:
+            ai_text = "你好！我是小智，随时为你解答单词疑惑，或者对我说‘翻转’来背单词吧！"
+            print(f"✨ [智能助教唤醒应答]: {ai_text}")
+            self.send_to_board({"type": "ai_response", "user": user_query, "ai": ai_text})
+            self.play_tts_to_headset(ai_text)
+            return
 
         headers = {
             "Authorization": f"Bearer {MIMO_API_KEY}",
@@ -567,14 +586,21 @@ class VocaVibeCompanion:
                     self.audio_mode = mode
                     print(f"🔊 [音频路由] 开发板端已切换音频播放设备: {'板载喇叭' if mode == 'speaker' else '蓝牙耳机'}")
                 elif ptype == "net_connect":
-                    print("🤝 [网络握手] 收到开发板网络中转连接请求，正在握手响应...")
-                    self.send_to_board({"type": "net_status", "connected": True, "ip": "127.0.0.1"})
-                    self.send_to_board({
-                        "type": "time_sync",
-                        "timestamp": int(time.time()),
-                        "time": time.strftime("%Y-%m-%d %H:%M:%S")
-                    })
-                    print("✅ 已成功向开发板回传网络代理就绪状态与时间同步")
+                    if not self.is_board_net_connected:
+                        self.is_board_net_connected = True
+                        print("🤝 [网络握手] 收到开发板网络连接请求，正在握手响应...")
+                        self.send_to_board({"type": "net_status", "connected": True, "ip": "127.0.0.1"})
+                        self.send_to_board({
+                            "type": "time_sync",
+                            "timestamp": int(time.time()),
+                            "time": time.strftime("%Y-%m-%d %H:%M:%S")
+                        })
+                        print("✅ 已成功向开发板回传网络代理就绪状态 (已连接) 与时间同步")
+                    else:
+                        self.is_board_net_connected = False
+                        print("🔌 [网络断开] 收到开发板网络断开请求...")
+                        self.send_to_board({"type": "net_status", "connected": False, "ip": ""})
+                        print("✅ 已成功向开发板回传网络代理断开状态 (未连接)")
                 elif ptype == "sync_pull":
                     threading.Thread(target=self.sync_from_anki_connect, daemon=True).start()
                 elif ptype == "sync_pull_deck":
@@ -730,7 +756,8 @@ class VocaVibeCompanion:
         self.connect_serial()
         if self.ser and self.ser.is_open:
             time.sleep(0.1)
-            self.send_to_board({"type": "net_status", "connected": True, "ip": "127.0.0.1"})
+            # 伴侣端启动时不自动强制板端连接网络，保持未连接状态，由用户在开发板设置页主动点击「连接」
+            self.send_to_board({"type": "net_status", "connected": False, "ip": ""})
             self.send_to_board({
                 "type": "time_sync",
                 "timestamp": int(time.time()),
