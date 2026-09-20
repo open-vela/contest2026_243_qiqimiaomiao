@@ -27,6 +27,7 @@ typedef void (*vocavibe_ui_bt_scan_cb_t)(void);
 typedef void (*vocavibe_ui_bt_connect_cb_t)(const char *mac);
 typedef void (*vocavibe_ui_net_connect_cb_t)(void);
 typedef void (*vocavibe_ui_audio_mode_cb_t)(vocavibe_audio_mode_t mode);
+typedef void (*vocavibe_ui_deck_select_cb_t)(uint32_t deck_id);
 
 typedef struct {
     vocavibe_ui_card_answer_cb_t on_card_answer;
@@ -36,6 +37,7 @@ typedef struct {
     vocavibe_ui_bt_connect_cb_t  on_bt_connect;
     vocavibe_ui_net_connect_cb_t on_net_connect;
     vocavibe_ui_audio_mode_cb_t  on_audio_mode;
+    vocavibe_ui_deck_select_cb_t on_deck_select;
 } vocavibe_ui_callbacks_t;
 
 /* AI 助教动效状态枚举 */
@@ -43,10 +45,11 @@ typedef enum {
     AI_STATE_IDLE = 0,
     AI_STATE_LISTENING,
     AI_STATE_THINKING,
-    AI_STATE_SPEAKING
+    AI_STATE_SPEAKING,
+    AI_STATE_PROACTIVE
 } vocavibe_ai_state_t;
 
-/* 初始化 UI (创建 4 页面 Tileview、小智声波、Anki 4 档按键、蓝牙代理列表等) */
+/* 初始化 UI (创建 4 页面 Tileview、AnkiDroid 牌组列表、小智光球等) */
 int  vocavibe_ui_init(const vocavibe_ui_callbacks_t *cbs);
 
 /* UI 核心主循环轮询（必须在初始化 LVGL 的主线程中调用，以共享 TLS 和触摸驱动） */
@@ -56,7 +59,8 @@ void vocavibe_ui_switch_page(int page_idx);
 int  vocavibe_ui_get_current_page(void);
 void vocavibe_ui_dump_layout(void);
 
-/* 页面 0: 仪表盘数据刷新 */
+/* 页面 0: AnkiDroid 牌组列表数据刷新 */
+void vocavibe_ui_update_decks_list(void);
 void vocavibe_ui_update_dashboard(int total, int due, int reviewed);
 
 /* 页面 1: Anki 卡片显示与翻转刷新 */
@@ -77,6 +81,9 @@ void vocavibe_ui_set_sync_status(const char *status_str);
 void vocavibe_ui_show_audio_modal(void);
 void vocavibe_ui_set_audio_mode(vocavibe_audio_mode_t mode);
 vocavibe_audio_mode_t vocavibe_ui_get_audio_mode(void);
+
+/* 主动自驱任务：弹出晚间到期背词自驱提醒卡片与翠绿律动 */
+void vocavibe_ui_show_proactive_alert(int due_count, const char *tips_msg);
 
 #ifdef __cplusplus
 }

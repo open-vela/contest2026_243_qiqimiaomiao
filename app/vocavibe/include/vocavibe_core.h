@@ -16,8 +16,18 @@ extern "C" {
 #endif
 
 #define VOCAVIBE_MAX_CARDS     64
+#define VOCAVIBE_MAX_DECKS     8
 #define VOCAVIBE_DATA_DIR      "/data/vocavibe"
 #define VOCAVIBE_DECK_FILE     "/data/vocavibe/deck.json"
+
+/* Anki 牌组元数据（支持 AnkiDroid 风格三色计数） */
+typedef struct {
+    uint32_t id;
+    char     name[48];
+    int      new_count;    /* 蓝色角标：新卡片 */
+    int      learn_count;  /* 红色角标：学习中 */
+    int      due_count;    /* 绿色角标：待复习 */
+} anki_deck_info_t;
 
 /* Anki 4 档标准评分 */
 typedef enum {
@@ -34,6 +44,7 @@ typedef struct {
     char     phonetic[48];
     char     meaning[96];
     char     example[160];
+    char     next_times[4][16]; /* 调度器计算的 4 档时间标签，例如 ["<1m", "10m", "1d", "4d"] */
     uint16_t interval;     /* 当前复习间隔 (天) */
     uint16_t factor;       /* SM-2 难度因子 (例如 2500 = 250%) */
     uint16_t reps;         /* 复习次数 */
@@ -58,7 +69,15 @@ int  vocavibe_core_init(void);
 int  vocavibe_core_deinit(void);
 void vocavibe_core_poll(void);
 
-/* --- 卡组管理与 Anki SM-2 算法 --- */
+/* --- 多牌组管理与浏览 --- */
+int  vocavibe_deck_get_deck_count(void);
+const anki_deck_info_t *vocavibe_deck_get_deck_at(int index);
+int  vocavibe_deck_select(uint32_t deck_id);
+uint32_t vocavibe_deck_get_selected_id(void);
+const char *vocavibe_deck_get_selected_name(void);
+int  vocavibe_deck_get_total_due_all_decks(void);
+
+/* --- 卡组管理与卡片流 --- */
 int  vocavibe_deck_init(const char *file_path);
 int  vocavibe_deck_get_total_count(void);
 int  vocavibe_deck_get_due_count(void);
@@ -91,6 +110,10 @@ int  vocavibe_core_request_bt_scan(void);
 int  vocavibe_core_request_bt_connect(const char *mac);
 int  vocavibe_core_request_net_connect(void);
 int  vocavibe_core_request_audio_mode(int mode);
+
+/* --- 主动自驱任务调度 (Proactive Scheduler) --- */
+void vocavibe_proactive_check(void);
+void vocavibe_trigger_proactive_reminder(int force_due);
 
 #ifdef __cplusplus
 }
