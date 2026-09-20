@@ -22,9 +22,6 @@ out/
 # 工程学习记录（团队内部笔记，暂不提交）
 工程学习记录/
 
-# AI Coding 日志（本地记录，暂不提交）
-logs/
-
 # 本地备份与缓存
 backup_today/
 __pycache__/
