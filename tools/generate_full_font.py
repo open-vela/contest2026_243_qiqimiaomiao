@@ -58,11 +58,11 @@ def main():
         print(f"错误: 找不到矢量字体文件 {font_path}")
         sys.exit(1)
 
-    # 5. 调用 npx lv_font_conv
+    # 5. 调用 npx lv_font_conv (包含 ASCII + 完整国际音标 IPA + 希腊字母音标 θ 等 0x20-0x03FF)
     cmd = [
         "npx", "lv_font_conv",
         "--font", font_path,
-        "-r", "0x20-0x7F",
+        "-r", "0x20-0x03FF",
         "--symbols", syms_str,
         "--size", "16",
         "--bpp", "4",

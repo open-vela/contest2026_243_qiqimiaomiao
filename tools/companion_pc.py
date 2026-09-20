@@ -254,6 +254,8 @@ class VocaVibeCompanion:
         self.tts_rate = "+12%"  # 轻快活泼语速 (经典小智风)
         self.tts_pitch = "+4Hz" # 语调微扬 (经典小智风)
         self.is_board_net_connected = False  # 开发板端网络代理连接状态 (默认未连接)
+        self.serial_lock = threading.Lock()
+        self.sync_lock = threading.Lock()
 
     def _open_port(self, port_dev):
         s = serial.Serial()
@@ -291,20 +293,21 @@ class VocaVibeCompanion:
             return False
 
     def send_to_board(self, payload: dict):
-        """向开发板发送标准 JSON 报文 (48字节分片流控，彻底杜绝板端 256B FIFO 溢出)"""
-        jstr = json.dumps(payload, ensure_ascii=False)
-        line = f"{jstr}\n".encode("utf-8")
-        if self.ser and self.ser.is_open:
-            try:
-                chunk_size = 48
-                for i in range(0, len(line), chunk_size):
-                    self.ser.write(line[i:i+chunk_size])
-                    self.ser.flush()
-                    if i + chunk_size < len(line):
-                        time.sleep(0.003)
-            except Exception as e:
-                print(f"❌ 串口写入失败: {e}")
-        print(f"📤 [发往板端] {jstr}")
+        """向开发板发送标准 JSON 报文 (加锁保护 + 48字节分片流控，彻底杜绝板端 256B FIFO 溢出与多线程交织)"""
+        with self.serial_lock:
+            jstr = json.dumps(payload, ensure_ascii=False)
+            line = f"{jstr}\n".encode("utf-8")
+            if self.ser and self.ser.is_open:
+                try:
+                    chunk_size = 48
+                    for i in range(0, len(line), chunk_size):
+                        self.ser.write(line[i:i+chunk_size])
+                        self.ser.flush()
+                        if i + chunk_size < len(line):
+                            time.sleep(0.003)
+                except Exception as e:
+                    print(f"❌ 串口写入失败: {e}")
+            print(f"📤 [发往板端] {jstr}")
 
     def get_bluetooth_sink(self):
         """获取当前活跃的蓝牙音频输出设备"""
@@ -500,17 +503,42 @@ class VocaVibeCompanion:
                 word = get_val("英语单词", "word", "front", "正面", "question")
                 if not word:
                     word = self._clean_card_text(ci.get("question", ""))
-                phonetic = get_val("英美音标", "phonetic", "音标")
-                meaning = get_val("中文释义", "meaning", "back", "背面", "answer")
-                if not meaning:
-                    meaning = self._clean_card_text(ci.get("answer", ""))
-                example = get_val("英语例句", "example", "例句", "sentence")
+                word = re.split(r"[\r\n]+", word)[0].strip()[:32]
 
-                # 若音标混在正面文本中则提取
+                phonetic = get_val("英美音标", "phonetic", "音标")
                 if not phonetic and "/" in word:
                     m = re.search(r"(/[^\n\r/]+?/)", word)
                     if m:
                         phonetic = m.group(1)
+                if phonetic:
+                    m_us = re.search(r"美\s*\[(.*?)\]", phonetic)
+                    m_uk = re.search(r"英\s*\[(.*?)\]", phonetic)
+                    if m_us:
+                        phonetic = f"/{m_us.group(1)}/"
+                    elif m_uk:
+                        phonetic = f"/{m_uk.group(1)}/"
+                    elif "[" in phonetic and "]" in phonetic:
+                        m_brk = re.search(r"\[(.*?)\]", phonetic)
+                        if m_brk:
+                            phonetic = f"/{m_brk.group(1)}/"
+                    elif not phonetic.startswith("/"):
+                        phonetic = f"/{phonetic.strip()}/"
+                else:
+                    phonetic = ""
+                phonetic = phonetic[:36]
+
+                meaning = get_val("中文释义", "meaning", "back", "背面", "answer")
+                if not meaning:
+                    meaning = self._clean_card_text(ci.get("answer", ""))
+                meaning = re.sub(r"[\r\n]+", " ", meaning).strip()[:36]
+
+                example = get_val("英语例句", "example", "例句", "sentence")
+                if example:
+                    example = re.split(r"\(2\)|[\r\n]+", example)[0].strip()
+                    example = re.sub(r"^\(\d+\)\s*", "", example).strip()
+                    example = example[:45]
+                else:
+                    example = ""
 
                 next_reviews = ci.get("nextReviews", [])
                 clean_reviews = [self._clean_card_text(r).replace(" ", "") for r in next_reviews[:4]]
@@ -519,10 +547,10 @@ class VocaVibeCompanion:
 
                 cards.append({
                     "id": idx + 1,
-                    "word": word[:45],
-                    "phonetic": phonetic[:45],
-                    "meaning": meaning[:90],
-                    "example": example[:150],
+                    "word": word,
+                    "phonetic": phonetic,
+                    "meaning": meaning,
+                    "example": example,
                     "interval": ci.get("interval", 0),
                     "factor": ci.get("factor", 2500),
                     "next_times": clean_reviews
@@ -532,93 +560,99 @@ class VocaVibeCompanion:
         return cards
 
     def sync_from_anki_connect(self):
-        """与 AnkiConnect 双向拉取同步卡组 (流式逐项下发，彻底杜绝丢包)"""
-        print(f"🔄 正在连接本地 AnkiConnect ({ANKI_CONNECT_URL})...")
-        decks_overview = []
+        """与 AnkiConnect 双向拉取同步卡组 (加锁防重入 + 流式逐项下发)"""
+        if not self.sync_lock.acquire(blocking=False):
+            print("⏳ 正在进行同步中，忽略重复触发...")
+            return
         try:
-            resp = requests.post(ANKI_CONNECT_URL, json={"action": "deckNames", "version": 6}, timeout=2)
-            if resp.status_code == 200 and resp.json().get("result"):
-                real_decks = resp.json().get("result", [])
-                print(f"✅ 检测到本地 Anki 词库: {real_decks}")
-                for idx, dname in enumerate(real_decks[:16]):
-                    def get_stat(query):
-                        try:
-                            r = requests.post(ANKI_CONNECT_URL, json={
-                                "action": "findCards", "version": 6, "params": {"query": f'deck:"{dname}" {query}'}
-                            }, timeout=1.5).json()
-                            return len(r.get("result", []))
-                        except Exception:
-                            return 0
-                    new_cnt = get_stat("is:new")
-                    learn_cnt = get_stat("is:learn")
-                    due_cnt = get_stat("is:due")
-                    if new_cnt == 0 and learn_cnt == 0 and due_cnt == 0:
-                        total_cnt = get_stat("")
-                        due_cnt = min(total_cnt, 20)
-                    decks_overview.append({
-                        "id": idx + 1,
-                        "name": dname,
-                        "new_count": new_cnt,
-                        "learn_count": learn_cnt,
-                        "due_count": due_cnt
-                    })
-        except Exception as e:
-            print(f"⚠️ AnkiConnect 未开启或未响应 ({e})，使用精选预置牌组同步。")
-            decks_overview = [
-                {"id": 1, "name": "英语专八高频核心", "new_count": 5, "learn_count": 4, "due_count": 15},
-                {"id": 2, "name": "考研词汇5500闪卡", "new_count": 12, "learn_count": 2, "due_count": 7},
-                {"id": 3, "name": "托福高分核心词汇", "new_count": 8, "learn_count": 3, "due_count": 10},
-            ]
+            print(f"🔄 正在连接本地 AnkiConnect ({ANKI_CONNECT_URL})...")
+            decks_overview = []
+            try:
+                resp = requests.post(ANKI_CONNECT_URL, json={"action": "deckNames", "version": 6}, timeout=2)
+                if resp.status_code == 200 and resp.json().get("result"):
+                    real_decks = resp.json().get("result", [])
+                    print(f"✅ 检测到本地 Anki 词库: {real_decks}")
+                    for idx, dname in enumerate(real_decks[:16]):
+                        def get_stat(query):
+                            try:
+                                r = requests.post(ANKI_CONNECT_URL, json={
+                                    "action": "findCards", "version": 6, "params": {"query": f'deck:"{dname}" {query}'}
+                                }, timeout=1.5).json()
+                                return len(r.get("result", []))
+                            except Exception:
+                                return 0
+                        new_cnt = get_stat("is:new")
+                        learn_cnt = get_stat("is:learn")
+                        due_cnt = get_stat("is:due")
+                        if new_cnt == 0 and learn_cnt == 0 and due_cnt == 0:
+                            total_cnt = get_stat("")
+                            due_cnt = min(total_cnt, 20)
+                        decks_overview.append({
+                            "id": idx + 1,
+                            "name": dname,
+                            "new_count": new_cnt,
+                            "learn_count": learn_cnt,
+                            "due_count": due_cnt
+                        })
+            except Exception as e:
+                print(f"⚠️ AnkiConnect 未开启或未响应 ({e})，使用精选预置牌组同步。")
+                decks_overview = [
+                    {"id": 1, "name": "英语专八高频核心", "new_count": 5, "learn_count": 4, "due_count": 15},
+                    {"id": 2, "name": "考研词汇5500闪卡", "new_count": 12, "learn_count": 2, "due_count": 7},
+                    {"id": 3, "name": "托福高分核心词汇", "new_count": 8, "learn_count": 3, "due_count": 10},
+                ]
 
-        # 1. 流式下发 AnkiDroid 全部牌组概览（每条独立小报文，杜绝 256 字节串口溢出）
-        self.send_to_board({"type": "sync_decks_begin", "total": len(decks_overview)})
-        time.sleep(0.02)
-        for d in decks_overview:
-            self.send_to_board({
-                "type": "sync_deck_item",
-                "id": d["id"],
-                "name": d["name"],
-                "new_count": d["new_count"],
-                "learn_count": d["learn_count"],
-                "due_count": d["due_count"]
-            })
-            time.sleep(0.01)
-        self.send_to_board({"type": "sync_decks_end"})
-        time.sleep(0.05)
+            # 1. 流式下发 AnkiDroid 全部牌组概览
+            self.send_to_board({"type": "sync_decks_begin", "total": len(decks_overview)})
+            time.sleep(0.04)
+            for d in decks_overview:
+                self.send_to_board({
+                    "type": "sync_deck_item",
+                    "id": d["id"],
+                    "name": d["name"],
+                    "new_count": d["new_count"],
+                    "learn_count": d["learn_count"],
+                    "due_count": d["due_count"]
+                })
+                time.sleep(0.04)
+            self.send_to_board({"type": "sync_decks_end"})
+            time.sleep(0.08)
 
-        # 2. 默认拉取首选英语卡牌组（优先匹配六级、英语、专八、单词等关键字）
-        target_deck = decks_overview[0]["name"] if decks_overview else "大学六级英语单词"
-        for d in decks_overview:
-            if any(kw in d["name"] for kw in ["六级", "英语", "单词", "专八", "考研", "托福"]):
-                target_deck = d["name"]
-                break
+            # 2. 默认拉取首选英语卡牌组
+            target_deck = decks_overview[0]["name"] if decks_overview else "大学六级英语单词"
+            for d in decks_overview:
+                if any(kw in d["name"] for kw in ["六级", "英语", "单词", "专八", "考研", "托福"]):
+                    target_deck = d["name"]
+                    break
 
-        print(f"📖 正在为当前学习界面拉取优先牌组 '{target_deck}' 的卡片...")
-        real_cards = self.fetch_anki_deck_cards(target_deck, max_cards=32)
-        if not real_cards:
-            real_cards = [
-                {"id": 1, "word": "openvela", "phonetic": "/ˈoʊpən ˈvɛlə/", "meaning": "面向端侧 AI 的下一代开源实时操作系统", "example": "OpenVela OS powers intelligent edge hardware.", "interval": 1, "factor": 2500, "next_times": ["<1m", "10m", "1d", "4d"]},
-                {"id": 2, "word": "multimodal", "phonetic": "/ˌmʌltiˈmoʊdl/", "meaning": "多模态的；屏幕触控与小智声波融合交互", "example": "VocaVibe delivers a multimodal learning experience.", "interval": 2, "factor": 2500, "next_times": ["<1m", "15m", "2d", "6d"]},
-            ]
+            print(f"📖 正在为当前学习界面拉取优先牌组 '{target_deck}' 的卡片...")
+            real_cards = self.fetch_anki_deck_cards(target_deck, max_cards=32)
+            if not real_cards:
+                real_cards = [
+                    {"id": 1, "word": "openvela", "phonetic": "/ˈoʊpən ˈvɛlə/", "meaning": "面向端侧 AI 的下一代开源实时操作系统", "example": "OpenVela OS powers intelligent edge hardware.", "interval": 1, "factor": 2500, "next_times": ["<1m", "10m", "1d", "4d"]},
+                    {"id": 2, "word": "multimodal", "phonetic": "/ˌmʌltiˈmoʊdl/", "meaning": "多模态的；屏幕触控与小智声波融合交互", "example": "VocaVibe delivers a multimodal learning experience.", "interval": 2, "factor": 2500, "next_times": ["<1m", "15m", "2d", "6d"]},
+                ]
 
-        # 流式逐张下发该牌组的所有卡片
-        self.send_to_board({"type": "sync_cards_begin", "deck_name": target_deck, "total": len(real_cards)})
-        time.sleep(0.02)
-        for c in real_cards:
-            self.send_to_board({
-                "type": "sync_card_item",
-                "id": c["id"],
-                "word": c["word"],
-                "phonetic": c["phonetic"],
-                "meaning": c["meaning"],
-                "example": c["example"],
-                "interval": c["interval"],
-                "factor": c["factor"],
-                "next_times": c["next_times"]
-            })
-            time.sleep(0.01)
-        self.send_to_board({"type": "sync_cards_end"})
-        print(f"🎉 成功同步 {len(decks_overview)} 个牌组概览及牌组 '{target_deck}' ({len(real_cards)} 张真实卡片) 至 VocaVibe！")
+            # 流式逐张下发该牌组的所有卡片
+            self.send_to_board({"type": "sync_cards_begin", "deck_name": target_deck, "total": len(real_cards)})
+            time.sleep(0.04)
+            for c in real_cards:
+                self.send_to_board({
+                    "type": "sync_card_item",
+                    "id": c["id"],
+                    "word": c["word"],
+                    "phonetic": c["phonetic"],
+                    "meaning": c["meaning"],
+                    "example": c["example"],
+                    "interval": c["interval"],
+                    "factor": c["factor"],
+                    "next_times": c["next_times"]
+                })
+                time.sleep(0.04)
+            self.send_to_board({"type": "sync_cards_end"})
+            print(f"🎉 成功同步 {len(decks_overview)} 个牌组概览及牌组 '{target_deck}' ({len(real_cards)} 张真实卡片) 至 VocaVibe！")
+        finally:
+            self.sync_lock.release()
 
     def scan_bluetooth_headsets(self):
         """扫描周围蓝牙耳机设备并通过电脑代理上报"""
@@ -753,7 +787,7 @@ class VocaVibeCompanion:
                                 {"id": 1, "word": "openvela", "phonetic": "/ˈoʊpən ˈvɛlə/", "meaning": "面向端侧 AI 的下一代开源实时操作系统", "example": "OpenVela OS powers intelligent edge hardware.", "interval": 1, "factor": 2500, "next_times": ["<1m", "10m", "1d", "4d"]}
                             ]
                         self.send_to_board({"type": "sync_cards_begin", "deck_name": deck_title, "total": len(real_cards)})
-                        time.sleep(0.02)
+                        time.sleep(0.04)
                         for c in real_cards:
                             self.send_to_board({
                                 "type": "sync_card_item",
@@ -766,7 +800,7 @@ class VocaVibeCompanion:
                                 "factor": c["factor"],
                                 "next_times": c["next_times"]
                             })
-                            time.sleep(0.01)
+                            time.sleep(0.04)
                         self.send_to_board({"type": "sync_cards_end"})
                         print(f"🎉 牌组 '{deck_title}' 共 {len(real_cards)} 张卡片已推送到开发板！")
                     threading.Thread(target=do_pull, args=(dname,), daemon=True).start()
