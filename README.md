@@ -111,26 +111,55 @@ python3 tools/companion_pc.py /dev/ttyACM0
 ```text
 contest2026_243_qiqimiaomiao/
 ├── app/
-│   └── vocavibe/                     # VocaVibe 端侧核心应用程序
-│       ├── CMakeLists.txt            # 构建配置 (链接 lvgl 与 cJSON)
-│       ├── include/
-│       │   ├── vocavibe_core.h       # 数据结构定义、Anki 同步与意图识别声明
-│       │   └── vocavibe_ui.h         # 4 页面 Tileview 布局与动画声明
-│       └── src/
-│           ├── vocavibe_main.c       # 主入口、串口监听线程与控制台
-│           ├── vocavibe_core.c       # SM-2 算法、/data/vocavibe/deck.json 持久化
-│           ├── vocavibe_ui.c         # AnkiDroid 仿生 UI、呼吸光球与触控逻辑
-│           ├── vocavibe_font.c       # CJK 矢量字体配置
-│           └── vocavibe_font_data.c  # 全量中文字符与音标点阵字库 (5.6MB)
-├── skills/
-│   ├── anki-card-manager.md          # 官方标准端侧 AI Skill: 卡片增删改查
-│   └── proactive-review-reminder.md  # 官方标准端侧 AI Skill: 主动自驱提醒
-├── tools/
-│   ├── companion_pc.py               # PC 伴侣网关 (MiMo 2.5 + 蓝牙代理 + Anki)
-│   ├── export_antigravity_log.py     # AI Coding 日志全量归集转换工具
-│   └── generate_full_font.py         # 全量汉字与国际音标字库烘焙工具
-├── logs/                             # 参赛团队 AI Coding 轨迹日志 (27,800+ 真实事件)
-└── README.md                         # 本项目主文档
+│   └── vocavibe/                           # VocaVibe 端侧嵌入式核心应用程序
+│       ├── CMakeLists.txt                  # OpenVela 构建系统脚本 (链接 lvgl、cJSON 与 libc)
+│       ├── Kconfig                         # RTOS 菜单配置选项定义
+│       ├── Makefile / Make.defs            # NuttX 应用构建规则
+│       ├── rcS.template                    # 板端开机自启动初始化脚本模板
+│       ├── include/                        # 核心头文件定义层
+│       │   ├── vocavibe.h                  # 顶层系统聚合头文件
+│       │   ├── vocavibe_agent.h            # 端侧 Agent 意图识别分类与技能路由声明
+│       │   ├── vocavibe_audio.h            # 板载硬件音频驱动 (24kHz DAC + AW8155 功放 + PMU 供电控制)
+│       │   ├── vocavibe_bt.h               # 蓝牙 BLE NUS (Nordic UART Service) 双向透传协议栈
+│       │   ├── vocavibe_core.h             # Anki SM-2 算法模型、FSRS 间隔、牌组与卡片定义
+│       │   ├── vocavibe_html.h             # 针对 Anki 卡片的轻量级 HTML 标签剥离与文本清洗引擎
+│       │   ├── vocavibe_touch.h            # FT6146 全电容高清触控屏驱动与事件映射接口
+│       │   └── vocavibe_ui.h               # LVGL 9 页面声明、Tileview 架构、小智声波律动声明
+│       ├── src/                            # 核心业务实现源码
+│       │   ├── vocavibe_main.c             # 系统入口、主事件分发循环与串口全双工监听线程
+│       │   ├── vocavibe_core.c             # SM-2 算法实现、/data/vocavibe/ 闪存持久化与端云协议编解码
+│       │   ├── vocavibe_ui.c               # 4 页面手账拟物拟态 UI、呼吸灵动光球与主动自驱弹窗
+│       │   ├── vocavibe_agent.c            # 端侧本地规则分类器、离线意图识别与技能派发
+│       │   ├── vocavibe_audio.c            # AW8155 一线脉冲控制、DAC 时钟树配置与 PCM 放音驱动
+│       │   ├── vocavibe_boot.c             # 硬件上电自检、引脚复用映射与自动运行调度
+│       │   ├── vocavibe_bt.c               # Zblue BLE 协议栈初始化、GATT 特征值与广播管理
+│       │   ├── vocavibe_font.c             # CJK 矢量与点阵字体装载及全字形绑定
+│       │   ├── vocavibe_font_data.c        # 离线全量 GB2312 汉字 + 国际音标 (IPA) 字符集 (5.60 MB)
+│       │   ├── vocavibe_html.c             # 富文本清洗降级过滤器 (剥离标签、去除不可见字符)
+│       │   └── vocavibe_touch.c            # 触控坐标映射、防抖消抖算法与手势判定
+│       └── skills/                         # 端侧内置运行时 Skill 定义
+│           ├── ai-tutor.md                 # AI 助教答疑与例句解析 Skill
+│           ├── anki-review.md              # Anki 间隔复习与 4 档评分调度 Skill
+│           └── word-expand.md              # 词根词缀派生与同义词辨析 Skill
+├── skills/                                 # 参赛团队沉淀的大赛标准端侧 AI Skills
+│   ├── anki-card-manager.md                # 官方标准端侧 AI Skill: 记忆卡片与卡组动态增删改查
+│   └── proactive-review-reminder.md        # 官方标准端侧 AI Skill: 主动自驱复习提醒与多模态告警
+├── tools/                                  # 调试、网关与 AI 辅助工具集
+│   ├── companion_pc.py                     # PC 伴侣端核心网关 (MiMo 2.5 + Whisper ASR + TTS + AnkiConnect)
+│   ├── export_antigravity_log.py           # Antigravity 全量 27,800+ 步会话一键归集工具
+│   ├── generate_full_font.py               # GB2312 + 国际音标 (0x20-0x03FF) 点阵字库自动化烘焙脚本
+│   ├── serial_console.py                   # 1,000,000 高速串口双向交互控制台
+│   ├── serial_gateway.py                   # 串口数据中继与帧流控网关
+│   ├── auto_reset.py / test_rts_reset.py   # DTR/RTS 硬件流控与软件无感复位工具
+│   ├── test_mimo_live.py                   # Xiaomi MiMo 2.5 云端大模型流式推理连通性测试
+│   └── nsh_exec.py                         # NuttX NSH 命令行远程自动执行管道
+├── 工程学习记录/                           # 团队工程演进与技术预研文档
+│   ├── vocavibe工程规划.md                 # VocaVibe 从 0 到 1 的系统架构与设计规划
+│   ├── 小智AI源码梳理.md                   # 端侧小智声波动效与端云通信机制剖析
+│   ├── openvela源码梳理指南.md             # OpenVela OS 整体框架与各子系统深度导读
+│   └── 开发环境搭建与编译.md               # 交叉编译链配置、CMake 配置与烧录避坑指南
+├── logs/                                   # 团队 AI Coding 轨迹日志归集 (27,800+ 步真实事件)
+└── README.md                               # 本项目主文档
 ```
 
 ---
