@@ -404,7 +404,6 @@ static void render_decks_list_internal(void)
 
         /* 绑定触控点选：传入牌组 ID */
         lv_obj_add_event_cb(item_btn, on_deck_item_clicked, LV_EVENT_CLICKED, (void *)(uintptr_t)deck->id);
-        lv_obj_add_event_cb(item_btn, on_deck_item_clicked, LV_EVENT_SHORT_CLICKED, (void *)(uintptr_t)deck->id);
 
         /* 左侧：牌组名称 (支持长文本优雅截断) */
         lv_obj_t *name_lbl = lv_label_create(item_btn);
@@ -500,7 +499,6 @@ static void create_page_0_dashboard(lv_obj_t *parent)
     lv_obj_set_style_radius(btn_sync_top, 6, 0);
     lv_obj_clear_flag(btn_sync_top, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(btn_sync_top, on_sync_pull_clicked, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(btn_sync_top, on_sync_pull_clicked, LV_EVENT_SHORT_CLICKED, NULL);
     lv_obj_t *lbl_sync_top = lv_label_create(btn_sync_top);
     apply_cjk_font(lbl_sync_top);
     lv_label_set_text(lbl_sync_top, "同步");
@@ -515,6 +513,7 @@ static void create_page_0_dashboard(lv_obj_t *parent)
     lv_obj_set_style_border_width(s_p0_deck_list, 0, 0);
     lv_obj_set_style_pad_all(s_p0_deck_list, 0, 0);
     lv_obj_set_style_pad_row(s_p0_deck_list, 6, 0);
+    lv_obj_set_flex_flow(s_p0_deck_list, LV_FLEX_FLOW_COLUMN);
     lv_obj_add_flag(s_p0_deck_list, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scroll_dir(s_p0_deck_list, LV_DIR_VER);
 

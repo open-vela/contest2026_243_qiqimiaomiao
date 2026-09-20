@@ -59,7 +59,9 @@ static void *serial_reader_thread(void *arg)
             char *json_end = strrchr(json_start, '}');
             if (json_end != NULL) {
                 *(json_end + 1) = '\0';
-                printf("[VocaVibe] 接收到串口 JSON 报文: %s\n", json_start);
+                if (strstr(json_start, "\"sync_card_item\"") == NULL) {
+                    printf("[VocaVibe] 接收到串口 JSON 报文: %s\n", json_start);
+                }
                 vocavibe_core_handle_line(json_start);
                 continue;
             }
