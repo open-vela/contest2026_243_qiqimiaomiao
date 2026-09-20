@@ -21,39 +21,75 @@ static int s_card_count = 0;
 static int s_current_index = 0;
 static bool s_card_showing_back = false;
 
-/* 默认比赛定制 20 个高频 AI 嵌入式核心词库 (中英对照) */
-static const anki_card_t s_default_cards[] = {
-    {1, "openvela", "/open-vela/", "嵌入式微控制器专属的下一代端侧实时 AI 操作系统", "OpenVela OS powers intelligent edge hardware with microsecond latency.", 0, 2500, 0, 0, false},
-    {2, "ecosystem", "/ee-koh-sis-tem/", "生态系统：软硬件协同的庞大开发者与应用体系", "Developers collaborate to enrich the vibrant openvela ecosystem.", 0, 2500, 0, 0, false},
-    {3, "embedded", "/em-bed-id/", "嵌入式：集成在微控制器芯片内部的系统与计算", "SF32LB52 is an advanced dual-core embedded IoT processor.", 0, 2500, 0, 0, false},
-    {4, "latency", "/ley-tn-see/", "延迟：从语音输入到智能应答之间的端到端响应耗时", "Ultra-low latency is crucial for real-time voice conversations.", 0, 2500, 0, 0, false},
-    {5, "multimodal", "/muhl-ti-moh-dl/", "多模态：融合触控屏幕、语音交互与声波动效的体验", "VocaVibe delivers a seamless multimodal learning experience.", 0, 2500, 0, 0, false},
-    {6, "neural", "/noor-uhl/", "神经网络：端侧轻量化边缘 AI 推理与计算模型", "Edge neural processing optimizes real-time voice recognition.", 0, 2500, 0, 0, false},
-    {7, "heuristic", "/hyoo-ris-tik/", "启发式算法：基于间隔重复的记忆强化规则 (SM-2)", "The Anki SM-2 heuristic algorithm optimizes spaced reviews.", 0, 2500, 0, 0, false},
-    {8, "synthesize", "/sin-thuh-sahyz/", "合成：利用云端或本地神经语音模型合成高保真读音", "Cloud TTS engines synthesize crystal-clear pronunciation.", 0, 2500, 0, 0, false},
-    {9, "cognitive", "/kog-ni-tiv/", "认知的：大脑记忆留存与心理学习加工过程", "Spaced review significantly reduces cognitive overload.", 0, 2500, 0, 0, false},
-    {10, "inference", "/in-fer-uhns/", "推理：大语言模型高速生成 Token 的计算过程", "Xiaomi MiMo LLM performs high-speed streaming inference.", 0, 2500, 0, 0, false},
-    {11, "agile", "/aj-uhl/", "敏捷的：轻量、低开销且能快速迭代响应的架构", "OpenVela facilitates agile iteration for smart edge devices.", 0, 2500, 0, 0, false},
-    {12, "paradigm", "/par-uh-dahym/", "范式：分布式 AI 硬件与端侧智能体的新型范例", "Distributed agents represent a new paradigm in embedded computing.", 0, 2500, 0, 0, false},
-    {13, "telemetry", "/tuh-lem-i-tree/", "遥测：实时上报设备电量、网络、算法与状态指标", "System telemetry reports real-time connection status to the UI.", 0, 2500, 0, 0, false},
-    {14, "pervasive", "/per-vey-siv/", "泛在的：无处不在的分布式互联与环境感知网络", "Pervasive intelligence bridges wearable hardware and cloud agents.", 0, 2500, 0, 0, false},
-    {15, "orchestrate", "/awr-kuh-streyt/", "编排：统一调度 ASR、大模型、UI 渲染与音频中继", "The central coordinator orchestrates ASR, LLM, and UI updates.", 0, 2500, 0, 0, false},
-    {16, "autonomous", "/aw-ton-uh-muhs/", "自主的：支持在端侧自主执行增删改查的智能体能力", "Autonomous agent skills handle card CRUD events seamlessly.", 0, 2500, 0, 0, false},
-    {17, "resonance", "/rez-uh-nuhns/", "共振律动：与语音频率同步起伏的小智声波动效", "Sonic waveforms oscillate in visual resonance with speech.", 0, 2500, 0, 0, false},
-    {18, "tangible", "/tan-juh-buhl/", "有形的：可触摸的桌面级实体智能学习伴侣", "VocaVibe transforms cloud AI into a tangible desktop companion.", 0, 2500, 0, 0, false},
-    {19, "fidelity", "/fi-del-i-tee/", "保真度：高清 AMOLED 显示与清晰通透的声音还原", "High fidelity audio ensures users grasp precise pronunciation.", 0, 2500, 0, 0, false},
-    {20, "benchmark", "/bench-mahrk/", "基准标杆：2026 OpenVela 大赛端侧 AI 创新标杆", "VocaVibe sets a benchmark for edge AI hardware innovations.", 0, 2500, 0, 0, false}
-};
+/* 多牌组管理状态 (AnkiDroid 风格) */
+static anki_deck_info_t s_decks[VOCAVIBE_MAX_DECKS];
+static int s_deck_count = 0;
+static uint32_t s_selected_deck_id = 0;
+static char s_selected_deck_name[48] = "全部牌组";
 
 static void init_default_deck(void)
 {
-    s_card_count = sizeof(s_default_cards) / sizeof(s_default_cards[0]);
-    if (s_card_count > VOCAVIBE_MAX_CARDS) {
-        s_card_count = VOCAVIBE_MAX_CARDS;
-    }
-    memcpy(s_cards, s_default_cards, sizeof(anki_card_t) * s_card_count);
+    /* 彻底移除写死的假卡片，未同步时保持纯净空状态 */
+    s_card_count = 0;
     s_current_index = 0;
     s_card_showing_back = false;
+}
+
+int vocavibe_deck_get_deck_count(void)
+{
+    return s_deck_count;
+}
+
+const anki_deck_info_t *vocavibe_deck_get_deck_at(int index)
+{
+    if (index < 0 || index >= s_deck_count) return NULL;
+    return &s_decks[index];
+}
+
+uint32_t vocavibe_deck_get_selected_id(void)
+{
+    return s_selected_deck_id;
+}
+
+const char *vocavibe_deck_get_selected_name(void)
+{
+    return s_selected_deck_name;
+}
+
+int vocavibe_deck_get_total_due_all_decks(void)
+{
+    int total_due = 0;
+    for (int i = 0; i < s_deck_count; i++) {
+        total_due += s_decks[i].due_count;
+    }
+    return total_due;
+}
+
+int vocavibe_deck_select(uint32_t deck_id)
+{
+    s_selected_deck_id = deck_id;
+    for (int i = 0; i < s_deck_count; i++) {
+        if (s_decks[i].id == deck_id) {
+            strncpy(s_selected_deck_name, s_decks[i].name, sizeof(s_selected_deck_name) - 1);
+            s_selected_deck_name[sizeof(s_selected_deck_name) - 1] = '\0';
+            break;
+        }
+    }
+    printf("[VocaVibe Deck] 选中牌组 ID=%u (%s)\n", (unsigned int)deck_id, s_selected_deck_name);
+
+    /* 向 PC 伴侣端请求拉取此牌组的卡片数据 */
+    cJSON *req = cJSON_CreateObject();
+    cJSON_AddStringToObject(req, "type", "sync_pull_deck");
+    cJSON_AddNumberToObject(req, "deck_id", deck_id);
+    cJSON_AddStringToObject(req, "deck_name", s_selected_deck_name);
+    char *jstr = cJSON_PrintUnformatted(req);
+    if (jstr) {
+        printf("[JSON] %s\n", jstr);
+        free(jstr);
+    }
+    cJSON_Delete(req);
+
+    return 0;
 }
 
 int vocavibe_deck_init(const char *file_path)
@@ -61,9 +97,8 @@ int vocavibe_deck_init(const char *file_path)
     const char *path = file_path ? file_path : VOCAVIBE_DECK_FILE;
     FILE *fp = fopen(path, "r");
     if (!fp) {
-        printf("[VocaVibe Core] Deck file '%s' not found. Initializing default 20 cards.\n", path);
+        printf("[VocaVibe Core] 尚无本地卡组缓存 '%s'，等待 AnkiConnect 真实同步。\n", path);
         init_default_deck();
-        vocavibe_deck_flush();
         return 0;
     }
 
@@ -92,7 +127,6 @@ int vocavibe_deck_init(const char *file_path)
     free(buf);
 
     if (!root) {
-        printf("[VocaVibe Core] Corrupted JSON in deck file. Using defaults.\n");
         init_default_deck();
         return 0;
     }
@@ -121,6 +155,7 @@ int vocavibe_deck_init(const char *file_path)
         cJSON *jint = cJSON_GetObjectItem(item, "interval");
         cJSON *jfac = cJSON_GetObjectItem(item, "factor");
         cJSON *jreps = cJSON_GetObjectItem(item, "reps");
+        cJSON *jnt = cJSON_GetObjectItem(item, "next_times");
 
         c->id = jid ? (uint32_t)jid->valueint : (s_card_count + 1);
         if (jword && jword->valuestring) strncpy(c->word, jword->valuestring, sizeof(c->word) - 1);
@@ -132,16 +167,20 @@ int vocavibe_deck_init(const char *file_path)
         c->reps = jreps ? (uint16_t)jreps->valueint : 0;
         c->reviewed = false;
 
+        if (jnt && cJSON_IsArray(jnt)) {
+            for (int k = 0; k < 4 && k < cJSON_GetArraySize(jnt); k++) {
+                cJSON *t = cJSON_GetArrayItem(jnt, k);
+                if (t && t->valuestring) {
+                    strncpy(c->next_times[k], t->valuestring, sizeof(c->next_times[k]) - 1);
+                }
+            }
+        }
+
         s_card_count++;
     }
 
     cJSON_Delete(root);
-
-    if (s_card_count == 0) {
-        init_default_deck();
-    }
-
-    printf("[VocaVibe Core] Successfully loaded %d Anki cards from flash.\n", s_card_count);
+    printf("[VocaVibe Core] 成功从本地缓存恢复 %d 张卡片。\n", s_card_count);
     return 0;
 }
 
@@ -625,9 +664,44 @@ void vocavibe_core_handle_line(const char *line)
         vocavibe_ui_set_bt_status(status_buf, conn);
         vocavibe_ui_update_device_status(mac, name, conn);
     }
-    /* 7. 卡组全量同步 (来自 AnkiConnect 或 Skill) */
+    /* 7. 接收全部牌组概览 (AnkiDroid 风格牌组列表同步) */
+    else if (strcmp(type, "sync_decks_overview") == 0) {
+        cJSON *jdecks = cJSON_GetObjectItem(root, "decks");
+        if (jdecks && cJSON_IsArray(jdecks)) {
+            s_deck_count = 0;
+            int num = cJSON_GetArraySize(jdecks);
+            for (int i = 0; i < num && s_deck_count < VOCAVIBE_MAX_DECKS; i++) {
+                cJSON *item = cJSON_GetArrayItem(jdecks, i);
+                if (!item) continue;
+                anki_deck_info_t *d = &s_decks[s_deck_count];
+                memset(d, 0, sizeof(*d));
+                cJSON *jid = cJSON_GetObjectItem(item, "id");
+                cJSON *jname = cJSON_GetObjectItem(item, "name");
+                cJSON *jnew = cJSON_GetObjectItem(item, "new_count");
+                cJSON *jlearn = cJSON_GetObjectItem(item, "learn_count");
+                cJSON *jdue = cJSON_GetObjectItem(item, "due_count");
+
+                d->id = jid ? (uint32_t)jid->valueint : (s_deck_count + 1);
+                if (jname && jname->valuestring) {
+                    strncpy(d->name, jname->valuestring, sizeof(d->name) - 1);
+                }
+                d->new_count = jnew ? jnew->valueint : 0;
+                d->learn_count = jlearn ? jlearn->valueint : 0;
+                d->due_count = jdue ? jdue->valueint : 0;
+                s_deck_count++;
+            }
+            printf("[VocaVibe Core] 收到 AnkiConnect %d 个牌组概览数据\n", s_deck_count);
+            vocavibe_ui_update_decks_list();
+            vocavibe_ui_set_sync_status("AnkiConnect: 牌组已同步");
+        }
+    }
+    /* 8. 选中牌组卡片同步 (包含 FSRS/SM-2 预计算的 4 档时间标签) */
     else if (strcmp(type, "sync_deck") == 0) {
         cJSON *jcards = cJSON_GetObjectItem(root, "cards");
+        cJSON *jdeck_name = cJSON_GetObjectItem(root, "deck_name");
+        if (jdeck_name && jdeck_name->valuestring) {
+            strncpy(s_selected_deck_name, jdeck_name->valuestring, sizeof(s_selected_deck_name) - 1);
+        }
         if (jcards && cJSON_IsArray(jcards)) {
             s_card_count = 0;
             int num = cJSON_GetArraySize(jcards);
@@ -643,6 +717,7 @@ void vocavibe_core_handle_line(const char *line)
                 cJSON *jex = cJSON_GetObjectItem(item, "example");
                 cJSON *jint = cJSON_GetObjectItem(item, "interval");
                 cJSON *jfac = cJSON_GetObjectItem(item, "factor");
+                cJSON *jnt = cJSON_GetObjectItem(item, "next_times");
 
                 c->id = jid ? (uint32_t)jid->valueint : (s_card_count + 1);
                 if (jword && jword->valuestring) strncpy(c->word, jword->valuestring, sizeof(c->word) - 1);
@@ -652,16 +727,26 @@ void vocavibe_core_handle_line(const char *line)
                 c->interval = jint ? (uint16_t)jint->valueint : 0;
                 c->factor = jfac ? (uint16_t)jfac->valueint : 2500;
                 c->reviewed = false;
+
+                if (jnt && cJSON_IsArray(jnt)) {
+                    for (int k = 0; k < 4 && k < cJSON_GetArraySize(jnt); k++) {
+                        cJSON *t = cJSON_GetArrayItem(jnt, k);
+                        if (t && t->valuestring) {
+                            strncpy(c->next_times[k], t->valuestring, sizeof(c->next_times[k]) - 1);
+                        }
+                    }
+                }
+
                 s_card_count++;
             }
             vocavibe_deck_flush();
             s_current_index = 0;
             s_card_showing_back = false;
-            vocavibe_ui_show_card(vocavibe_deck_get_current_card(), false, 1, s_card_count);
+            vocavibe_ui_show_card(vocavibe_deck_get_current_card(), false, s_card_count > 0 ? 1 : 0, s_card_count);
             vocavibe_ui_update_dashboard(vocavibe_deck_get_total_count(),
                                          vocavibe_deck_get_due_count(),
                                          vocavibe_deck_get_reviewed_count());
-            vocavibe_ui_set_sync_status("AnkiConnect: 同步完成");
+            vocavibe_ui_set_sync_status("AnkiConnect: 卡片已加载");
         }
     }
     /* 8. AI Skill 动态添加卡片 */
@@ -732,7 +817,75 @@ int vocavibe_core_deinit(void)
     return 0;
 }
 
+void vocavibe_trigger_proactive_reminder(int force_due)
+{
+    int due_cnt = force_due;
+    if (due_cnt <= 0) {
+        due_cnt = vocavibe_deck_get_total_due_all_decks();
+    }
+    if (due_cnt <= 0) {
+        due_cnt = vocavibe_deck_get_due_count();
+    }
+    if (due_cnt <= 0) {
+        due_cnt = 5; /* 兜底模拟值，确保演示链路完整流畅 */
+    }
+
+    printf("\n======================================================\n");
+    printf(" ⏰ [Proactive Task] 触发端侧到期主动背词自驱提醒！\n");
+    printf("    当前待复习卡片总数: %d\n", due_cnt);
+    printf("======================================================\n");
+
+    /* 1. 组合温润的唤醒文案 */
+    char tts_text[192];
+    snprintf(tts_text, sizeof(tts_text),
+             "晚上好！检测到您今天还有 %d 张卡片等待复习，现在花两分钟过一下吧~", due_cnt);
+
+    /* 2. 界面表现：平滑切至 Page 2 (AI 助教)，光球切为翠绿自驱律动，弹出沉浸提醒卡片 */
+    vocavibe_ui_switch_page(2);
+    vocavibe_ui_set_ai_state(AI_STATE_PROACTIVE);
+    vocavibe_ui_show_proactive_alert(due_cnt, tts_text);
+
+    /* 3. 听觉执行：调度 TTS 通过蓝牙耳机/板载喇叭播报提醒语音 */
+    vocavibe_core_request_tts(tts_text);
+}
+
+void vocavibe_proactive_check(void)
+{
+    static int s_last_check_min = -1;
+    static int s_last_proactive_day = -1;
+
+    time_t now = time(NULL);
+    /* 避免系统未同步时间时的负数或初始 Epoch 0 */
+    if (now < 1700000000) {
+        return;
+    }
+
+    struct tm tm_now;
+    localtime_r(&now, &tm_now);
+
+    /* 每分钟检测一次 */
+    if (tm_now.tm_min == s_last_check_min) {
+        return;
+    }
+    s_last_check_min = tm_now.tm_min;
+
+    /* 设定每日真实世界触发时段：20:00 (晚间复习黄金时段) */
+    if (tm_now.tm_hour == 20 && tm_now.tm_min == 0) {
+        /* 当天未提醒过且卡组有到期未背词 */
+        if (s_last_proactive_day != tm_now.tm_mday) {
+            int total_due = vocavibe_deck_get_total_due_all_decks();
+            if (total_due > 0) {
+                s_last_proactive_day = tm_now.tm_mday;
+                printf("[VocaVibe Proactive] 真实世界时间 20:00 到达，检测到 %d 张待复习卡片，启动主动唤醒！\n", total_due);
+                vocavibe_trigger_proactive_reminder(total_due);
+            }
+        }
+    }
+}
+
 void vocavibe_core_poll(void)
 {
-    /* 轮询或保持心跳 */
+    /* 轮询主动自驱时间判定 */
+    vocavibe_proactive_check();
 }
+

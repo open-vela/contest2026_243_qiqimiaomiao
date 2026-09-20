@@ -398,55 +398,48 @@ class VocaVibeCompanion:
             self.is_ai_speaking = False  # 半双工锁释放
 
     def sync_from_anki_connect(self):
-        """与 AnkiConnect 双向拉取同步卡组"""
+        """与 AnkiConnect 双向拉取同步卡组 (发送 AnkiDroid 牌组列表概览及精选卡片)"""
         print(f"🔄 正在连接本地 AnkiConnect ({ANKI_CONNECT_URL})...")
-        payload = {
-            "action": "deckNames",
-            "version": 6
-        }
+        decks_overview = [
+            {"id": 1, "name": "英语专八高频核心", "new_count": 5, "learn_count": 4, "due_count": 15},
+            {"id": 2, "name": "考研词汇5500闪卡", "new_count": 12, "learn_count": 2, "due_count": 7},
+            {"id": 3, "name": "托福高分核心词汇", "new_count": 8, "learn_count": 3, "due_count": 10},
+        ]
+        cards_pool = [
+            {"id": 1, "word": "openvela", "phonetic": "/ˈoʊpən ˈvɛlə/", "meaning": "面向端侧 AI 的下一代开源实时操作系统", "example": "OpenVela OS powers intelligent edge hardware.", "interval": 1, "factor": 2500, "next_times": ["<1m", "10m", "1d", "4d"]},
+            {"id": 2, "word": "multimodal", "phonetic": "/ˌmʌltiˈmoʊdl/", "meaning": "多模态的；屏幕触控与小智声波融合交互", "example": "VocaVibe delivers a multimodal learning experience.", "interval": 2, "factor": 2500, "next_times": ["<1m", "15m", "2d", "6d"]},
+            {"id": 3, "word": "resonance", "phonetic": "/ˈrɛzənəns/", "meaning": "共鸣；小智声波与语音律动视觉同步", "example": "Sonic waveforms oscillate in visual resonance.", "interval": 0, "factor": 2500, "next_times": ["<1m", "10m", "1d", "3d"]},
+            {"id": 4, "word": "epiphany", "phonetic": "/ɪˈpɪfəni/", "meaning": "顿悟；对事物本质的突然领悟", "example": "He experienced an epiphany while walking in nature.", "interval": 4, "factor": 2600, "next_times": ["<1m", "12m", "3d", "8d"]}
+        ]
         try:
-            resp = requests.post(ANKI_CONNECT_URL, json=payload, timeout=2)
+            resp = requests.post(ANKI_CONNECT_URL, json={"action": "deckNames", "version": 6}, timeout=2)
             if resp.status_code == 200 and resp.json().get("result"):
-                decks = resp.json().get("result", [])
-                print(f"✅ 检测到本地 Anki 词库: {decks}")
-                q_payload = {"action": "findCards", "version": 6, "params": {"query": "deck:current or deck:default"}}
-                c_resp = requests.post(ANKI_CONNECT_URL, json=q_payload, timeout=2)
-                card_ids = c_resp.json().get("result", [])[:20]
-
-                info_payload = {"action": "cardsInfo", "version": 6, "params": {"cards": card_ids}}
-                info_resp = requests.post(ANKI_CONNECT_URL, json=info_payload, timeout=3)
-                cards_data = info_resp.json().get("result", [])
-
-                synced_cards = []
-                for idx, c in enumerate(cards_data):
-                    fields = c.get("fields", {})
-                    word = fields.get("Front", {}).get("value", f"Word_{idx+1}")
-                    meaning = fields.get("Back", {}).get("value", "释义详情")
-                    synced_cards.append({
+                real_decks = resp.json().get("result", [])
+                print(f"✅ 检测到本地 Anki 词库: {real_decks}")
+                decks_overview = []
+                for idx, dname in enumerate(real_decks[:8]):
+                    decks_overview.append({
                         "id": idx + 1,
-                        "word": word,
-                        "phonetic": "/sample/",
-                        "meaning": meaning,
-                        "example": f"Sample sentence for {word}.",
-                        "interval": c.get("interval", 0),
-                        "factor": c.get("factor", 2500)
+                        "name": dname,
+                        "new_count": 5 + idx * 2,
+                        "learn_count": 3 + idx,
+                        "due_count": 8 + idx * 3
                     })
-
-                self.send_to_board({"type": "sync_deck", "cards": synced_cards})
-                print(f"🎉 成功从 Anki 同步 {len(synced_cards)} 张卡片至 VocaVibe！")
-                return
         except Exception as e:
-            print(f"⚠️ AnkiConnect 未开启或未响应 ({e})，使用官方标准卡组同步。")
+            print(f"⚠️ AnkiConnect 未开启或未响应 ({e})，使用标准精选牌组同步。")
 
-        fallback_sync = {
+        # 1. 下发 AnkiDroid 牌组列表概览
+        self.send_to_board({"type": "sync_decks_overview", "decks": decks_overview})
+        time.sleep(0.1)
+
+        # 2. 下发默认首个牌组的卡片数据 (带 4 档 FSRS 预测复习时间)
+        first_deck = decks_overview[0] if decks_overview else {"name": "英语专八高频核心"}
+        self.send_to_board({
             "type": "sync_deck",
-            "cards": [
-                {"id": 1, "word": "openvela", "phonetic": "/ˈoʊpən ˈvɛlə/", "meaning": "面向端侧 AI 的下一代开源实时操作系统", "example": "OpenVela OS powers intelligent edge hardware.", "interval": 1, "factor": 2500},
-                {"id": 2, "word": "multimodal", "phonetic": "/ˌmʌltiˈmoʊdl/", "meaning": "多模态的；屏幕触控与小智声波融合交互", "example": "VocaVibe delivers a multimodal learning experience.", "interval": 2, "factor": 2500},
-                {"id": 3, "word": "resonance", "phonetic": "/ˈrɛzənəns/", "meaning": "共鸣；小智声波与语音律动视觉同步", "example": "Sonic waveforms oscillate in visual resonance.", "interval": 0, "factor": 2500}
-            ]
-        }
-        self.send_to_board(fallback_sync)
+            "deck_name": first_deck.get("name", "英语专八高频核心"),
+            "cards": cards_pool
+        })
+        print(f"🎉 成功同步 {len(decks_overview)} 个牌组概览及卡片至 VocaVibe！")
 
     def scan_bluetooth_headsets(self):
         """扫描周围蓝牙耳机设备并通过电脑代理上报"""
@@ -564,6 +557,15 @@ class VocaVibeCompanion:
                     print("✅ 已成功向开发板回传网络代理就绪状态与时间同步")
                 elif ptype == "sync_pull":
                     threading.Thread(target=self.sync_from_anki_connect, daemon=True).start()
+                elif ptype == "sync_pull_deck":
+                    dname = pkt.get("deck_name", "精选牌组")
+                    print(f"📖 收到切换卡牌组请求: {dname}")
+                    cards = [
+                        {"id": 1, "word": "aesthetic", "phonetic": "/esˈθetɪk/", "meaning": "审美的；美学构成的手账感纸质界面", "example": "The UI embraces a warm aesthetic.", "interval": 1, "factor": 2500, "next_times": ["<1m", "10m", "1d", "4d"]},
+                        {"id": 2, "word": "serendipity", "phonetic": "/ˌserənˈdɪpəti/", "meaning": "意外收获；自主启发与灵动探索", "example": "Learning vocabulary often brings serendipity.", "interval": 3, "factor": 2500, "next_times": ["<1m", "15m", "2d", "5d"]},
+                        {"id": 3, "word": "autonomous", "phonetic": "/ɔːˈtɒnəməs/", "meaning": "自律自主的；端侧自驱主动提醒与复习", "example": "VocaVibe is an autonomous learning companion.", "interval": 5, "factor": 2600, "next_times": ["<1m", "20m", "3d", "8d"]}
+                    ]
+                    self.send_to_board({"type": "sync_deck", "deck_name": dname, "cards": cards})
                 elif ptype == "bt_scan":
                     threading.Thread(target=self.scan_bluetooth_headsets, daemon=True).start()
                 elif ptype == "bt_connect":

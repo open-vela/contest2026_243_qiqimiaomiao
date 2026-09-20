@@ -74,6 +74,7 @@ static void *serial_reader_thread(void *arg)
             printf("  answer <1..4>  - Anki 评分 (1:重来, 2:困难, 3:良好, 4:简单)\n");
             printf("  next           - 下一张卡片\n");
             printf("  ai <query>     - 向大模型提问\n");
+            printf("  proactive [cnt]- 主动自驱任务演示 (触发晚间到期背词自驱提醒)\n");
             printf("  exit / quit    - 退出程序\n\n");
         } else if (strcmp(p, "status") == 0) {
             printf("\n[VocaVibe 状态]\n");
@@ -102,6 +103,12 @@ static void *serial_reader_thread(void *arg)
             vocavibe_deck_answer_card(ANKI_RATING_GOOD);
         } else if (strncmp(p, "ai ", 3) == 0) {
             vocavibe_core_request_ai(p + 3);
+        } else if (strncmp(p, "proactive", 9) == 0) {
+            int due_param = 0;
+            if (strlen(p) > 9) {
+                due_param = atoi(p + 9);
+            }
+            vocavibe_trigger_proactive_reminder(due_param);
         } else if (strcmp(p, "dump") == 0) {
             vocavibe_ui_dump_layout();
         } else if (strncmp(p, "page ", 5) == 0) {
@@ -142,6 +149,7 @@ int main(int argc, char *argv[])
         .on_bt_connect  = (vocavibe_ui_bt_connect_cb_t)vocavibe_core_request_bt_connect,
         .on_net_connect = (vocavibe_ui_net_connect_cb_t)vocavibe_core_request_net_connect,
         .on_audio_mode  = (vocavibe_ui_audio_mode_cb_t)vocavibe_core_request_audio_mode,
+        .on_deck_select = (vocavibe_ui_deck_select_cb_t)vocavibe_deck_select,
     };
 
     /* 3. 在主线程中初始化 UI 与触摸屏驱动 (保证 TLS 隔离环境一致) */
@@ -200,6 +208,7 @@ int main(int argc, char *argv[])
             }
         }
 
+        vocavibe_core_poll();
         vocavibe_ui_poll();
     }
 
