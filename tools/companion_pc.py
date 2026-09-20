@@ -65,21 +65,33 @@ class AudioListener(threading.Thread):
 
             audio_float, avg_rms, src_name = item
             try:
-                # 内存直通 Faster-Whisper，无需落地 WAV 文件磁盘 I/O
-                segments, _ = self.model.transcribe(audio_float, language="zh", beam_size=1)
+                # 内存直通 Faster-Whisper，附带 initial_prompt 强制提示专有名词 openvela
+                segments, _ = self.model.transcribe(
+                    audio_float,
+                    language="zh",
+                    beam_size=1,
+                    initial_prompt="你好 openvela, OpenVela, VocaVibe, 小智助教, 英语单词卡片"
+                )
                 text = "".join([s.text for s in segments]).strip()
                 if not text:
                     continue
+
+                # 自动对齐修正英文专有名词与常见发音误差 (openela / 欧朋维拉等)
+                text = re.sub(r'open\s*ela', 'openvela', text, flags=re.IGNORECASE)
+                text = re.sub(r'open\s*ella', 'openvela', text, flags=re.IGNORECASE)
+                text = re.sub(r'欧[朋盆鹏]维拉', 'openvela', text)
+                text = re.sub(r'会首笔号', '你好 openvela', text)
 
                 print(f"🎤 [ASR 捕获语音]: '{text}' (RMS={int(avg_rms)}, 拾音设备={src_name})")
 
                 # 归一化清洗文本
                 clean_text = re.sub(r"[^\w\u4e00-\u9fa5]", "", text).lower()
 
-                # 唤醒词与卡片指令关键词库
+                # 唤醒词与卡片指令关键词库 (丰富 openvela 及其衍生发音)
                 wake_keywords = [
                     "你好openvela", "openvela", "你好小智", "小智你好",
-                    "小智助教", "小智", "随声记", "你好", "open vela"
+                    "小智助教", "小智", "随声记", "你好", "open vela", "openela",
+                    "open-ela", "欧朋维拉", "欧盆维拉", "维拉"
                 ]
                 card_keywords = [
                     "翻转", "背面", "答案", "看释义", "重来", "忘记", "不会",
@@ -327,6 +339,7 @@ class VocaVibeCompanion:
         system_prompt = (
             "你是 VocaVibe（随声记）AI 硬件背单词终端的智能助教。"
             "请用简明清晰、生动地道的中文或双语回答用户的英语学习问题，字数严格控制在 80 字以内。"
+            "【重要约束】：请只输出纯文本，切勿输出任何 Emoji 表情符号或特殊装饰符号，以便嵌入式屏幕正确显示。"
         )
         payload = {
             "model": "mimo-v2.5",
@@ -342,6 +355,9 @@ class VocaVibeCompanion:
                 res_json = resp.json()
                 ai_text = res_json['choices'][0]['message']['content'].strip()
                 ai_text = ' '.join(ai_text.split())
+                # 严格过滤 Emoji 等扩展 Unicode 符号，彻底消除 AMOLED 屏幕上的方块 □
+                ai_text = re.sub(r'[\U00010000-\U0010ffff]', '', ai_text)
+                ai_text = re.sub(r'[\u2600-\u26ff\u2700-\u27bf]', '', ai_text)
                 print(f"✨ [MiMo 2.5 答复]: {ai_text}")
                 self.send_to_board({"type": "ai_response", "user": user_query, "ai": ai_text})
                 self.play_tts_to_headset(ai_text)
@@ -358,7 +374,9 @@ class VocaVibeCompanion:
         """小智同款台湾腔 TTS 语音合成与分流播报（半双工免打断）"""
         if not text:
             return
-        print(f"🔊 [小智台湾腔 TTS] 正在合成并播报: '{text[:40]}...'")
+        # 播报前清洗表情
+        clean_tts_text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
+        print(f"🔊 [小智台湾腔 TTS] 正在合成并播报: '{clean_tts_text[:40]}...'")
         self.is_ai_speaking = True  # 半双工锁开启
         self.send_to_board({"type": "ai_state", "state": "speaking"})
 
@@ -366,14 +384,14 @@ class VocaVibeCompanion:
         tmp_wav = "/tmp/vocavibe_tts.wav"
 
         try:
-            # 1. 异步生成 Edge-TTS 经典小智台湾女声 (带语速与音高调优)
+            # 1. 异步生成 Edge-TTS 经典小智台湾女声 (晓臻 zh-TW-HsiaoChenNeural)
             async def gen_voice():
-                comm = edge_tts.Communicate(text, self.tts_voice, rate=self.tts_rate, pitch=self.tts_pitch)
+                comm = edge_tts.Communicate(clean_tts_text, self.tts_voice, rate=self.tts_rate, pitch=self.tts_pitch)
                 await comm.save(tmp_mp3)
 
             asyncio.run(gen_voice())
 
-            # 2. PyAV 高速将 MP3 转为 24kHz 单声道 WAV
+            # 2. PyAV 高速将 MP3 转为 24kHz 单声道 16-bit PCM WAV (float32 -> int16 纠偏，杜绝男低音变慢变异)
             container = av.open(tmp_mp3)
             stream = container.streams.audio[0]
             with wave.open(tmp_wav, "wb") as wf:
@@ -381,7 +399,9 @@ class VocaVibeCompanion:
                 wf.setsampwidth(2)
                 wf.setframerate(24000)
                 for frame in container.decode(stream):
-                    wf.writeframes(frame.to_ndarray().tobytes())
+                    pcm_f32 = frame.to_ndarray()
+                    pcm_i16 = (np.clip(pcm_f32, -1.0, 1.0) * 32767.0).astype(np.int16)
+                    wf.writeframes(pcm_i16.tobytes())
 
             # 3. 根据当前选定的输出模式分流
             bt_sink = self.get_bluetooth_sink()
