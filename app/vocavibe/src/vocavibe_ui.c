@@ -338,9 +338,9 @@ static void on_bt_dev_item_clicked(lv_event_t *e)
 }
 
 /* -------------------------------------------------------------------------
- * Page 0: AnkiDroid 牌组列表动态渲染
+ * Page 0: AnkiDroid 牌组列表动态渲染 (主线程安全执行)
  * ------------------------------------------------------------------------- */
-void vocavibe_ui_update_decks_list(void)
+static void render_decks_list_internal(void)
 {
     if (!s_p0_deck_list) return;
 
@@ -450,6 +450,12 @@ void vocavibe_ui_update_decks_list(void)
         lv_obj_set_style_text_color(lbl_due, lv_color_hex(COLOR_SEAL_GOOD), 0);
         lv_obj_align(lbl_due, LV_ALIGN_RIGHT_MID, -4, 0);
     }
+}
+
+void vocavibe_ui_update_decks_list(void)
+{
+    /* 跨线程通知：置 dirty 标志，由主循环安全调度渲染 */
+    s_p0_decks_dirty = true;
 }
 
 /* -------------------------------------------------------------------------
@@ -1033,7 +1039,7 @@ void vocavibe_ui_poll(void)
     /* 2. AnkiDroid 牌组列表与待复习卡片摘要刷新 */
     if (s_p0_decks_dirty) {
         s_p0_decks_dirty = false;
-        vocavibe_ui_update_decks_list();
+        render_decks_list_internal();
     }
 
     /* 3. 卡片数据与正反面切换刷新 (支持 HTML 解析) */

@@ -85,6 +85,7 @@ int vocavibe_deck_select(uint32_t deck_id)
     char *jstr = cJSON_PrintUnformatted(req);
     if (jstr) {
         printf("[JSON] %s\n", jstr);
+        fflush(stdout);
         free(jstr);
     }
     cJSON_Delete(req);
@@ -664,7 +665,39 @@ void vocavibe_core_handle_line(const char *line)
         vocavibe_ui_set_bt_status(status_buf, conn);
         vocavibe_ui_update_device_status(mac, name, conn);
     }
-    /* 7. 接收全部牌组概览 (AnkiDroid 风格牌组列表同步) */
+    /* 7. 接收全部牌组概览 (单批次全量或流式逐项同步) */
+    else if (strcmp(type, "sync_decks_begin") == 0) {
+        s_deck_count = 0;
+        memset(s_decks, 0, sizeof(s_decks));
+        printf("[VocaVibe Core] 开启 AnkiConnect 牌组流式接收...\n");
+    }
+    else if (strcmp(type, "sync_deck_item") == 0) {
+        if (s_deck_count < VOCAVIBE_MAX_DECKS) {
+            anki_deck_info_t *d = &s_decks[s_deck_count];
+            memset(d, 0, sizeof(*d));
+            cJSON *jid = cJSON_GetObjectItem(root, "id");
+            cJSON *jname = cJSON_GetObjectItem(root, "name");
+            cJSON *jnew = cJSON_GetObjectItem(root, "new_count");
+            cJSON *jlearn = cJSON_GetObjectItem(root, "learn_count");
+            cJSON *jdue = cJSON_GetObjectItem(root, "due_count");
+
+            d->id = jid ? (uint32_t)jid->valueint : (s_deck_count + 1);
+            if (jname && jname->valuestring) {
+                strncpy(d->name, jname->valuestring, sizeof(d->name) - 1);
+            }
+            d->new_count = jnew ? jnew->valueint : 0;
+            d->learn_count = jlearn ? jlearn->valueint : 0;
+            d->due_count = jdue ? jdue->valueint : 0;
+            s_deck_count++;
+            printf("[VocaVibe Core] 接收牌组 [%d/%d]: %s (新:%d 学:%d 待:%d)\n",
+                   s_deck_count, VOCAVIBE_MAX_DECKS, d->name, d->new_count, d->learn_count, d->due_count);
+        }
+    }
+    else if (strcmp(type, "sync_decks_end") == 0) {
+        printf("[VocaVibe Core] ✅ 成功接收全部 %d 个本地牌组概览，触发 UI 刷新\n", s_deck_count);
+        vocavibe_ui_update_decks_list();
+        vocavibe_ui_set_sync_status("AnkiConnect: 牌组已同步");
+    }
     else if (strcmp(type, "sync_decks_overview") == 0) {
         cJSON *jdecks = cJSON_GetObjectItem(root, "decks");
         if (jdecks && cJSON_IsArray(jdecks)) {
@@ -695,7 +728,63 @@ void vocavibe_core_handle_line(const char *line)
             vocavibe_ui_set_sync_status("AnkiConnect: 牌组已同步");
         }
     }
-    /* 8. 选中牌组卡片同步 (包含 FSRS/SM-2 预计算的 4 档时间标签) */
+    /* 8. 接收选中牌组卡片 (单批次或逐张流式接收) */
+    else if (strcmp(type, "sync_cards_begin") == 0) {
+        s_card_count = 0;
+        memset(s_cards, 0, sizeof(s_cards));
+        cJSON *jdeck_name = cJSON_GetObjectItem(root, "deck_name");
+        if (jdeck_name && jdeck_name->valuestring) {
+            strncpy(s_selected_deck_name, jdeck_name->valuestring, sizeof(s_selected_deck_name) - 1);
+        }
+        printf("[VocaVibe Core] 开启牌组 '%s' 卡片流式接收...\n", s_selected_deck_name);
+    }
+    else if (strcmp(type, "sync_card_item") == 0) {
+        if (s_card_count < VOCAVIBE_MAX_CARDS) {
+            anki_card_t *c = &s_cards[s_card_count];
+            memset(c, 0, sizeof(*c));
+            cJSON *jid = cJSON_GetObjectItem(root, "id");
+            cJSON *jword = cJSON_GetObjectItem(root, "word");
+            cJSON *jpho = cJSON_GetObjectItem(root, "phonetic");
+            cJSON *jmean = cJSON_GetObjectItem(root, "meaning");
+            cJSON *jex = cJSON_GetObjectItem(root, "example");
+            cJSON *jint = cJSON_GetObjectItem(root, "interval");
+            cJSON *jfac = cJSON_GetObjectItem(root, "factor");
+            cJSON *jnt = cJSON_GetObjectItem(root, "next_times");
+
+            c->id = jid ? (uint32_t)jid->valueint : (s_card_count + 1);
+            if (jword && jword->valuestring) strncpy(c->word, jword->valuestring, sizeof(c->word) - 1);
+            if (jpho && jpho->valuestring) strncpy(c->phonetic, jpho->valuestring, sizeof(c->phonetic) - 1);
+            if (jmean && jmean->valuestring) strncpy(c->meaning, jmean->valuestring, sizeof(c->meaning) - 1);
+            if (jex && jex->valuestring) strncpy(c->example, jex->valuestring, sizeof(c->example) - 1);
+            c->interval = jint ? (uint16_t)jint->valueint : 0;
+            c->factor = jfac ? (uint16_t)jfac->valueint : 2500;
+            c->reviewed = false;
+
+            if (jnt && cJSON_IsArray(jnt)) {
+                for (int k = 0; k < 4 && k < cJSON_GetArraySize(jnt); k++) {
+                    cJSON *t = cJSON_GetArrayItem(jnt, k);
+                    if (t && t->valuestring) {
+                        strncpy(c->next_times[k], t->valuestring, sizeof(c->next_times[k]) - 1);
+                    }
+                }
+            }
+            s_card_count++;
+            printf("[VocaVibe Core] 接收卡片 [%d]: %s (%s)\n", s_card_count, c->word, c->meaning);
+        }
+    }
+    else if (strcmp(type, "sync_cards_end") == 0) {
+        printf("[VocaVibe Core] ✅ 牌组 '%s' 全量 %d 张卡片已落盘持久化至 %s\n",
+               s_selected_deck_name, s_card_count, VOCAVIBE_DECK_FILE);
+        vocavibe_deck_flush();
+        s_current_index = 0;
+        s_card_showing_back = false;
+        vocavibe_ui_show_card(vocavibe_deck_get_current_card(), false, s_card_count > 0 ? 1 : 0, s_card_count);
+        vocavibe_ui_update_dashboard(vocavibe_deck_get_total_count(),
+                                     vocavibe_deck_get_due_count(),
+                                     vocavibe_deck_get_reviewed_count());
+        vocavibe_ui_set_sync_status("AnkiConnect: 卡片已加载");
+        vocavibe_ui_switch_page(1);
+    }
     else if (strcmp(type, "sync_deck") == 0) {
         cJSON *jcards = cJSON_GetObjectItem(root, "cards");
         cJSON *jdeck_name = cJSON_GetObjectItem(root, "deck_name");

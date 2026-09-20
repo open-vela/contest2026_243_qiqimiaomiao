@@ -16,14 +16,14 @@ extern "C" {
 #endif
 
 #define VOCAVIBE_MAX_CARDS     64
-#define VOCAVIBE_MAX_DECKS     8
+#define VOCAVIBE_MAX_DECKS     16
 #define VOCAVIBE_DATA_DIR      "/data/vocavibe"
 #define VOCAVIBE_DECK_FILE     "/data/vocavibe/deck.json"
 
 /* Anki 牌组元数据（支持 AnkiDroid 风格三色计数） */
 typedef struct {
     uint32_t id;
-    char     name[48];
+    char     name[96];
     int      new_count;    /* 蓝色角标：新卡片 */
     int      learn_count;  /* 红色角标：学习中 */
     int      due_count;    /* 绿色角标：待复习 */
